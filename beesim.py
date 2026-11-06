@@ -71,6 +71,39 @@ NAME_PREFIX = "BeeSIM"
 # GSMA ISD-R AID selected on the logical channel (A4 04 00) before any ES10 cmd.
 ISDR_AID = bytes.fromhex("A0000005591010FFFFFFFF8900000100")
 
+# --------------------------------------------------------------------------- #
+# Communication settings shown in the TUI "Settings" dialog (and CLI flags).
+# Defaults come from the official BeeSIM Web 2.3.6 bundle, recorded in
+# web-api-reference.json; semantics follow ISO 7816-4 and GSMA SGP.22.
+#
+# store_max_lc = 120
+#   Data bytes carried by one STORE DATA (INS E2) block. _store_bytes() splits
+#   an ES10 command TLV into blocks of this size and sends each as
+#   81 E2 <P1=0x11/0x91> <block> <Lc> <data>. ISO 7816-4 short APDUs encode Lc
+#   in one byte, hence the 1..255 range. Web 2.3.6 uses 120. This is unrelated
+#   to the 18-byte BLE packet grouping (GROUP_PAYLOAD). Smaller means more but
+#   shorter blocks; larger means fewer commands.
+#
+# timeout = 30 s
+#   BeeSimTransport.send() waits at most this long for the card's notifications
+#   to reassemble one full APDU response. Web 2.3.6 uses 30000 ms. A timeout
+#   marks the transport closed: a late reply must never be mistaken for the
+#   next command's response, so reconnect before issuing further commands.
+#
+# channel = 1
+#   ISO 7816-4 supplementary logical channel opened with MANAGE CHANNEL
+#   (INS 70; 00 70 80 <ch> 00 closes, 00 70 00 <ch> 00 opens) before SELECT
+#   ISD-R. Each channel keeps its own selected application and security state.
+#   ES10 CLA = 0x80 | channel (0x81 for channel 1), see Euicc._store_bytes.
+#   Web 2.3.6 fixes channel 1; this client allows 1..3 for compatibility.
+#
+# delay_over_counter = 6
+#   Throttle: after this many APDUs (GET RESPONSE 0xC0 and 0xFE are excluded)
+#   the client sleeps 1.2 s so the card can catch up, then resets the counter.
+#   Web 2.3.6 uses 6 for application commands and 20 for BPP/firmware
+#   writes; load_bound_profile_package()/download_firmware() temporarily set
+#   the latter. 0 disables throttling.
+# --------------------------------------------------------------------------- #
 STORE_MAX_LC = 120          # Web 2.3.6 default; distinct from 18-byte BLE groups
 GROUP_PAYLOAD = 18          # bytes of APDU per BLE packet          (groupValue)
 LOGICAL_CHANNEL = 1         # fixed logical channel                 (pe.channel)

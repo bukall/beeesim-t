@@ -46,6 +46,18 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(str(app.query_one("#btn-download", Button).label), "下载 eSIM")
             self.assertEqual(app.sub_title, "蓝牙 eUICC 管理工具")
 
+    async def test_settings_show_detailed_hints_in_both_languages(self):
+        for language, expected in (("zh", "ISO 7816-4"), ("en", "one-byte Lc")):
+            with self.subTest(language=language):
+                app = b._build_tui_app()(language=language)
+                async with app.run_test(size=(140, 50)) as pilot:
+                    app.action_settings()
+                    await pilot.pause()
+                    hints = [str(w.render()) for w in app.screen.query(".field-hint")]
+                    self.assertEqual(len(hints), 4)
+                    self.assertTrue(all(len(h) > 40 for h in hints))
+                    self.assertTrue(any(expected in h for h in hints), hints)
+
     async def test_settings_validate_and_localize(self):
         app = b._build_tui_app()(language="zh")
         async with app.run_test(size=(110, 40)) as pilot:

@@ -78,6 +78,42 @@ TEXT = {
     "reply_timeout": ("响应超时（秒）", "Response timeout (seconds)"),
     "channel": ("逻辑通道（1–3）", "Logical channel (1–3)"),
     "delay_counter": ("节流阈值（0 关闭，默认 6）", "Throttle threshold (0 disables, default 6)"),
+    "hint_store_max_lc": (
+        "STORE DATA 单块数据字节数（Lc）。\n"
+        "ES10 命令按此长度分块，逐块以 81 E2 <P1> <块号> <Lc> <数据> 写入卡片；"
+        "ISO 7816-4 短 APDU 的 Lc 只有 1 字节，故上限 255。\n"
+        "官方 Web 2.3.6 默认 120：调小则分块更多、单条命令更短；调大则命令更少。"
+        "仅在出现分块或超时兼容问题时调整。",
+        "Data bytes per STORE DATA block (Lc).\n"
+        "ES10 commands are split into blocks sent as 81 E2 <P1> <block> <Lc> <data>; "
+        "ISO 7816-4 short APDUs use a one-byte Lc, so the maximum is 255.\n"
+        "Web 2.3.6 defaults to 120: smaller means more, shorter blocks; larger means fewer "
+        "commands. Change only to work around framing or timeout issues."),
+    "hint_timeout": (
+        "等待卡片经 BLE notify 返回完整 APDU 响应的最长时间（秒）。\n"
+        "Web 2.3.6 默认 30 秒。超时后传输层会标记会话失效，必须重新扫描连接，"
+        "以免迟到的响应被误当成下一条命令的结果。",
+        "Seconds to wait for a complete APDU response over BLE notify.\n"
+        "Web 2.3.6 defaults to 30 s. On timeout the transport invalidates the session; "
+        "reconnect before sending anything else so a late reply cannot be mistaken for "
+        "the next command's response."),
+    "hint_channel": (
+        "ISO 7816-4 补充逻辑通道号（MANAGE CHANNEL，INS=70）。\n"
+        "程序先关闭再打开该通道，随后 SELECT ISD-R；ES10 命令的 CLA = 0x80 | 通道号"
+        "（通道 1 即 0x81）。每条通道有独立的应用选择与安全状态。\n"
+        "Web 2.3.6 固定用通道 1；仅当卡片拒绝时才试 2 或 3。",
+        "ISO 7816-4 supplementary logical channel (MANAGE CHANNEL, INS=70).\n"
+        "The app closes then opens this channel and selects ISD-R; ES10 CLA = 0x80 | channel "
+        "(0x81 for channel 1). Each channel keeps its own selected application and security state.\n"
+        "Web 2.3.6 uses channel 1; try 2 or 3 only if the card rejects it."),
+    "hint_delay_counter": (
+        "连续发送多少条 APDU 后暂停 1.2 秒，给卡片留出处理时间。\n"
+        "官方 Web 2.3.6 应用命令阈值 6；GET RESPONSE(0xC0) 与 0xFE 不计数；"
+        "下载配置包与刷固件时程序会临时提高到 20。\n设为 0 关闭节流。",
+        "Number of APDUs after which the client pauses 1.2 s to let the card catch up.\n"
+        "Web 2.3.6 uses 6 for application commands; GET RESPONSE (0xC0) and 0xFE are not "
+        "counted; profile-package and firmware writes temporarily raise it to 20.\n"
+        "Set 0 to disable throttling."),
     "settings_saved": ("设置已保存，下次连接时生效。", "Settings saved; applied on the next connection."),
     "settings_invalid": ("请输入有效的块长、超时、通道和节流阈值。", "Enter valid block size, timeout, channel and throttle values."),
     "firmware_path": ("本地固件文本文件路径", "Local firmware text file path"),

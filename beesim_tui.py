@@ -56,11 +56,17 @@ def build_app(api):
             self.title_text, self.fields, self.language = title, fields, language
 
         def compose(self):
-            with VerticalScroll(id="dialog"):
+            hinted = any(len(field) > 4 and field[4] for field in self.fields)
+            with Vertical(id="dialog"):
                 yield Label(self.title_text, id="dialog-q", markup=False)
-                for key, label, value, password in self.fields:
-                    yield Label(label, markup=False)
-                    yield Input(value=value, password=password, id="field-" + key)
+                with VerticalScroll(id="form-body", classes="hinted" if hinted else "compact"):
+                    for field in self.fields:
+                        key, label, value, password = field[:4]
+                        hint = field[4] if len(field) > 4 else None
+                        yield Label(label, markup=False)
+                        if hint:
+                            yield Static(hint, classes="field-hint", markup=False)
+                        yield Input(value=value, password=password, id="field-" + key)
                 with Horizontal(id="dialog-buttons"):
                     yield Button(translate("cancel", self.language), id="cancel")
                     yield Button(translate("ok", self.language), id="ok", variant="primary")
@@ -147,6 +153,9 @@ def build_app(api):
         #dialog-buttons Button { width: auto; margin-left: 1; }
         #info-body { height: 28; max-height: 70%; border: round $primary; padding: 0 1; }
         #dialog .info-heading { text-style: bold; margin-top: 1; }
+        #dialog .field-hint { color: $text-muted; margin-bottom: 1; }
+        #form-body.compact { height: 8; }
+        #form-body.hinted { height: 22; max-height: 65%; }
         LanguageScreen Button { width: 100%; margin-top: 1; }
         """
         ACTIONS = [("s", "scan"), ("r", "refresh"), ("e", "enable"), ("d", "disable"),
@@ -439,8 +448,12 @@ def build_app(api):
         def action_settings(self):
             if not self._guard(False):
                 return
-            fields = [(key, self.tr(label), str(self.settings[key]), False) for key, label in
-                      (("store_max_lc", "store_max_lc"), ("timeout", "reply_timeout"), ("channel", "channel"), ("delay_over_counter", "delay_counter"))]
+            fields = [(key, self.tr(label), str(self.settings[key]), False, self.tr(hint))
+                      for key, label, hint in
+                      (("store_max_lc", "store_max_lc", "hint_store_max_lc"),
+                       ("timeout", "reply_timeout", "hint_timeout"),
+                       ("channel", "channel", "hint_channel"),
+                       ("delay_over_counter", "delay_counter", "hint_delay_counter"))]
             def submit(result):
                 if result is None:
                     return
