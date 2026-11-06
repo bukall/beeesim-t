@@ -741,8 +741,12 @@ class BeeSim:
             await (gateway or WebAPI()).execute("handleNotification", smdp, self.protocol,
                                                {"pendingNotification": base64.b64encode(pending).decode()})
             # The Web bundle deletes by the sequence the caller requested, not
-            # by the index parsed out of the notification body.
-            await self.remove_notification(seq)
+            # by the index parsed out of the notification body. It also always
+            # removes the notification after a successful send. This client
+            # deliberately differs for DELETE (profile removal) notifications:
+            # those stay on the card so the owner keeps an audit record.
+            if data.get("profileManagementOperation") != "DELETE":
+                await self.remove_notification(seq)
             return data
 
     async def download_firmware(self, rows, total=None, start=1, log=print):

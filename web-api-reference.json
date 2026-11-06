@@ -142,6 +142,9 @@
     "TX power restoration is attempted on failure as well as success.",
     "No automatic upload of diagnostic logs.",
     "Direct RSP mode remains optional; default is the official Web proxy.",
-    "BLE channel encoding is limited to channels 1..3."
+    "BLE channel encoding is limited to channels 1..3.",
+    "After a successful notification send, INSTALL/ENABLE/DISABLE notifications are removed from the card, but DELETE (profile removal) notifications are kept as an audit record.",
+    "EnableProfile result code 02 is treated as success; the Web bundle reports it as an error.",
+    "Read-only ES10 commands are replayed when the card returns an incomplete chained response."
   ]
 }
