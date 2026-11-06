@@ -10,6 +10,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, RichLog, Select, Static
 
@@ -485,13 +486,18 @@ def build_app(api):
                 self.exit()
 
         def _render_rssi(self):
+            try:
+                widget = self.query_one("#rssi", Static)
+            except NoMatches:
+                # Timer ticks can land before the screen is composed (Textual 8).
+                return
             text = "RSSI —"
             if self.client and self.rssi is not None:
                 bars = max(0, min(4, (self.rssi + 100) // 12))
                 text = "RSSI " + "▂▄▆█"[:bars] + "·" * (4-bars) + f" {self.rssi} dBm"
                 if time.monotonic() - self.rssi_ts > 5:
                     text += " (" + self.tr("stale") + ")"
-            self.query_one("#rssi", Static).update(text)
+            widget.update(text)
 
         @work(exclusive=True, group="rssi", exit_on_error=False)
         async def _rssi_monitor(self):

@@ -41,6 +41,10 @@ class CodecTests(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 b.parse_tlv(bytes.fromhex(raw))
 
+    def test_partial_tlv_reports_truncated_value(self):
+        with self.assertRaisesRegex(ValueError, "Truncated TLV value"):
+            b.parse_tlv(bytes.fromhex("BF3E03"))
+
     def test_activation_codes(self):
         self.assertEqual(b.parse_activation_code("LPA:1$rsp.example.com$abc$$1"), ("rsp.example.com", "abc", True))
         self.assertEqual(b.parse_activation_code("1$rsp.example.com"), ("rsp.example.com", "", False))
@@ -127,6 +131,16 @@ class InitializationTests(unittest.IsolatedAsyncioTestCase):
             await e.send_command(bytes.fromhex("81E2910000"))
             # ScriptedTransport also yields via sleep(0); only count 1.2s waits.
             self.assertEqual(sum(call.args == (1.2,) for call in sleep.call_args_list), 1)
+
+    async def test_empty_90_00_retries_instead_of_truncating_tlv(self):
+        # The Web bundle retries an empty 90 00: the card may not have the next
+        # GET RESPONSE segment ready yet. Returning early yields a half TLV.
+        e = euicc(["9000"] * 4 + ["6105", "BF3E036103", "9000", "5C015A9000"])
+        r = await e.store_and_read(bytes.fromhex("BF3E035C015A"))
+        self.assertEqual(r, bytes.fromhex("BF3E035C015A"))
+        self.assertEqual(b.find_tag(b.parse_tlv(r), "BF3E", "5C"), b"\x5a")
+        reads = [x for x in e.t.commands if x[1] == 0xC0]
+        self.assertEqual(len(reads), 3)
 
 
 class APITests(unittest.IsolatedAsyncioTestCase):

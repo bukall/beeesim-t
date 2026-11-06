@@ -155,7 +155,10 @@ def parse_tlv(data: bytes, start: int = 0, end: Optional[int] = None) -> list:
             length = data[i]
             i += 1
         if i + length > end:
-            raise ValueError("Truncated TLV value")
+            raise ValueError(
+                f"Truncated TLV value: tag {tag} needs {length} bytes, "
+                f"only {end - i} remain at offset {i} "
+                f"(data {data[start:start + 16].hex().upper()}...)")
         value_bytes = data[i:i + length]
         if constructed:
             value = parse_tlv(data, i, i + length)
@@ -422,6 +425,7 @@ class Euicc:
         cla = (self.channel & 0x0F) | 0x80
         buf = bytearray()
         ins = 0xC0
+        empty_replies = 0
         for _ in range(1024):
             r = await self.send_command(bytes([cla, ins, 0x00, 0x00, le]))
             if len(r) < 2:
@@ -432,6 +436,13 @@ class Euicc:
                 le = sw2
                 ins = 0xC0
             elif sw1 == 0x90:               # done
+                if not body and empty_replies < 3:
+                    # Web 2.3.6 retries an empty 90 00: the card may not have
+                    # the next segment ready yet. Returning here would hand a
+                    # partial TLV to parse_tlv ("Truncated TLV value").
+                    empty_replies += 1
+                    self._log("<-- empty 90 00, retry", empty_replies)
+                    continue
                 buf.extend(body)
                 return bytes(buf)
             elif sw1 == 0xFE or sw2 == 0xFE:
