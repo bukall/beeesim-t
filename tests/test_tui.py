@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from textual.widgets import Button, DataTable, Input, Label
+from textual.widgets import Button, DataTable, Input, Label, Static
 
 import beesim as b
 from beesim_i18n import TEXT, translate
@@ -148,3 +148,22 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.click("#confirm")
                 await pilot.pause()
                 self.assertEqual(download.call_args.args[4], "1234")
+
+    async def test_info_screen_shows_json_and_chinese_explanation(self):
+        app = b._build_tui_app()(language="zh")
+        app.client = SimpleNamespace(disconnect=AsyncMock())
+        app.sim = SimpleNamespace(get_euicc_info2=AsyncMock(
+            return_value={"svn": "2.2.2", "euiccFirmwareVer": "1.3.6", "raw": "BF22"}))
+        app.euicc = SimpleNamespace(t=SimpleNamespace(_closed=False))
+        async with app.run_test(size=(110, 40)) as pilot:
+            app.action_info()
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            self.assertEqual(app.screen.__class__.__name__, "InfoScreen")
+            self.assertIn('"svn": "2.2.2"',
+                          str(app.screen.query_one("#info-raw", Static).render()))
+            self.assertIn("SGP.22 规范版本",
+                         str(app.screen.query_one("#info-explain", Static).render()))
+            await pilot.click("#ok")
+            await pilot.pause()
+            self.assertNotEqual(app.screen.__class__.__name__, "InfoScreen")

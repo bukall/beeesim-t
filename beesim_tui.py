@@ -102,6 +102,31 @@ def build_app(api):
         def on_button_pressed(self, event):
             self.dismiss(self.query_one("#tx-level", Select).value if event.button.id == "confirm" else None)
 
+    class InfoScreen(ModalScreen[None]):
+        BINDINGS = [Binding("escape", "dismiss_info", show=False)]
+
+        def __init__(self, title, raw_json, explanation, language):
+            super().__init__()
+            self.title_text, self.raw_json = title, raw_json
+            self.explanation, self.language = explanation, language
+
+        def compose(self):
+            with Vertical(id="dialog"):
+                yield Label(self.title_text, id="dialog-q")
+                with VerticalScroll(id="info-body"):
+                    yield Static(translate("info_raw_label", self.language), classes="info-heading")
+                    yield Static(self.raw_json, markup=False, id="info-raw")
+                    yield Static(translate("info_explain_label", self.language), classes="info-heading")
+                    yield Static(self.explanation, markup=False, id="info-explain")
+                with Horizontal(id="dialog-buttons"):
+                    yield Button(translate("ok", self.language), id="ok", variant="primary")
+
+        def on_button_pressed(self, event):
+            self.dismiss(None)
+
+        def action_dismiss_info(self):
+            self.dismiss(None)
+
     class BeeSimApp(App):
         CSS = """
         Screen { layout: vertical; }
@@ -120,6 +145,8 @@ def build_app(api):
         #dialog Input, #dialog Select { margin-bottom: 1; }
         #dialog-buttons { height: auto; align: right middle; margin-top: 1; }
         #dialog-buttons Button { width: auto; margin-left: 1; }
+        #info-body { height: 28; max-height: 70%; border: round $primary; padding: 0 1; }
+        #dialog .info-heading { text-style: bold; margin-top: 1; }
         LanguageScreen Button { width: 100%; margin-top: 1; }
         """
         ACTIONS = [("s", "scan"), ("r", "refresh"), ("e", "enable"), ("d", "disable"),
@@ -362,7 +389,11 @@ def build_app(api):
 
         def action_info(self):
             async def perform():
-                self.log_line(json.dumps(await self.sim.get_euicc_info2(), ensure_ascii=False, indent=2))
+                info = await self.sim.get_euicc_info2()
+                raw_json = json.dumps(info, ensure_ascii=False, indent=2)
+                self.log_line(raw_json)
+                explanation = api.describe_euicc_info(info, self.language, "EUICCInfo2")
+                self.push_screen(InfoScreen(self.tr("info_title"), raw_json, explanation, self.language))
             self._start("info", perform)
 
         def action_notifications(self):

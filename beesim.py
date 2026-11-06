@@ -777,6 +777,117 @@ def _parse_euicc_info(raw, root):
     return result
 
 
+# Human-readable explanation of EUICCInfo1/EUICCInfo2. Field names and meanings
+# follow GSMA SGP.22 (EUICCInfo2 ASN.1) and the parser above, not guesswork.
+# Entries: (zh label, en label, zh description, en description).
+_EUICC_INFO_FIELDS = {
+    "profileVersion": (
+        "基础配置包版本", "Base profile package version",
+        "卡片支持的基础 eSIM 配置包（Profile Package）版本，决定能装载哪种格式的配置文件。",
+        "Base eSIM Profile Package version the eUICC supports; it decides which profile format can be loaded."),
+    "svn": (
+        "SGP.22 规范版本", "SGP.22 specification version",
+        "卡片实现的 GSMA SGP.22 版本；程序据此协商 ES9+ 的 X-Admin-Protocol（gsma/rsp/v<svn>）。",
+        "GSMA SGP.22 version implemented by the card; the client negotiates the ES9+ X-Admin-Protocol from it."),
+    "euiccFirmwareVer": (
+        "芯片固件版本", "eUICC firmware version",
+        "eUICC 芯片自身的固件版本，与 BeeSIM Web 网页版本号不是一回事。",
+        "Firmware version of the eUICC chip itself, not the BeeSIM Web app version."),
+    "extCardResource": (
+        "卡内资源", "Card resources",
+        "按 ETSI TS 102 226 的扩展卡资源信息：可安装的配置实例数、空闲非易失存储（字节）、空闲易失内存（字节）。",
+        "Extended card resource per ETSI TS 102 226: available profile instances, free non-volatile and volatile memory (bytes)."),
+    "uiccCapability": (
+        "UICC 能力", "UICC capability",
+        "SGP.22 UICCCapability 位图（USIM/ISIM/CSIM、Java Card 等）；本程序按原始十六进制输出，未逐位解码。",
+        "SGP.22 UICCCapability bitmap (USIM/ISIM/CSIM, Java Card, ...); shown as raw hex, not decoded bit by bit."),
+    "ts102241Version": (
+        "TS 102.241 版本", "TS 102.241 version",
+        "ETSI TS 102 241（UICC Java Card 平台）版本；SGP.22 v2.1 起由 javacardVersion 改名而来。",
+        "ETSI TS 102 241 (UICC Java Card platform) version; renamed from javacardVersion in SGP.22 v2.1."),
+    "globalplatformVersion": (
+        "GlobalPlatform 版本", "GlobalPlatform version",
+        "GlobalPlatform 卡管理规范版本；ISD-R 的逻辑通道与应用选择基于该规范。",
+        "GlobalPlatform card management version; ISD-R logical channels and application selection build on it."),
+    "rspCapability": (
+        "RSP 能力", "RSP capability",
+        "SGP.22 EuiccRspCapability 位图（如 additionalProfile、testProfileSupport）；本程序按原始十六进制输出。",
+        "SGP.22 EuiccRspCapability bitmap (e.g. additionalProfile, testProfileSupport); shown as raw hex."),
+    "euiccCategory": (
+        "eUICC 类别", "eUICC category",
+        "SGP.22 定义 other/basicEuicc/mediumEuicc/contactlessEuicc，已标记为弃用；部分卡不提供。",
+        "SGP.22 other/basicEuicc/mediumEuicc/contactlessEuicc; deprecated and often absent."),
+    "forbiddenProfilePolicyRules": (
+        "禁用的配置策略规则", "Forbidden profile policy rules",
+        "卡片声明不允许生效的 Profile Policy Rules（PPR）标识。",
+        "Profile Policy Rules (PPR) identifiers the card declares as not allowed."),
+    "ppVersion": (
+        "保护轮廓版本", "Protection Profile version",
+        "SGP.22 ppVersion：芯片安全认证所依据的通用准则（CC）保护轮廓版本。",
+        "SGP.22 ppVersion: Common Criteria Protection Profile version used for the chip's security certification."),
+    "sasAcreditationNumber": (
+        "SAS 认证编号", "SAS accreditation number",
+        "GSMA SAS 安全认证编号（SGP.22 原字段拼写即 Acreditation，标准正确拼写为 Accreditation）。",
+        "GSMA SAS security accreditation number (the SGP.22 field name spells it 'Acreditation')."),
+    "certificationDataObject": (
+        "认证数据对象", "Certification data object",
+        "认证附加数据，如平台标签（Platform_Label）与 DLOA 发现服务 URL。",
+        "Certification data such as the Platform_Label and the DLOA registrar discovery URL."),
+    "euiccCiPKIdListForVerification": (
+        "验签用 CI 公钥列表", "CI public key IDs for verification",
+        "卡片信任的 eSIM CA 根证书公钥标识，用于校验 SM-DP+ 证书链的签名。",
+        "eSIM CA root public key IDs trusted by the card to verify the SM-DP+ certificate chain."),
+    "euiccCiPKIdListForSigning": (
+        "签名用 CI 公钥列表", "CI public key IDs for signing",
+        "卡片信任的 eSIM CA 根证书公钥标识，用于生成可被服务器验证的签名证书链。",
+        "eSIM CA root public key IDs trusted by the card when creating a certificate chain the server can verify."),
+}
+
+_CARD_RESOURCE_LABELS = {
+    "installedApplication": ("已安装应用数", "installed applications"),
+    "freeNonVolatileMemory": ("空闲非易失存储(字节)", "free non-volatile memory (bytes)"),
+    "freeVolatileMemory": ("空闲易失内存(字节)", "free volatile memory (bytes)"),
+}
+
+
+def _format_info_value(value, limit=300) -> str:
+    if isinstance(value, dict):
+        text = ", ".join(f"{k}={_format_info_value(v, 80)}" for k, v in value.items())
+    elif isinstance(value, list):
+        text = ", ".join(_format_info_value(v, 80) for v in value)
+    else:
+        text = str(value)
+    return text if len(text) <= limit else text[:limit] + "..."
+
+
+def describe_euicc_info(info: dict, language: str = "zh", title: Optional[str] = None) -> str:
+    """Explain EUICCInfo1/EUICCInfo2 in Chinese (or English) alongside the raw JSON."""
+    zh = language != "en"
+    heading = title or ("芯片信息" if zh else "eUICC information")
+    lines = [f"【{heading} · {'中文解读' if zh else 'explained'}】"]
+    for key, value in info.items():
+        if key == "raw":
+            continue
+        meta = _EUICC_INFO_FIELDS.get(key)
+        if meta is None:
+            note = "未收录字段，按原值显示" if zh else "unmapped field, shown as-is"
+            lines.append(f"  {key}: {_format_info_value(value)}  ({note})")
+            continue
+        name, desc = (meta[0], meta[2]) if zh else (meta[1], meta[3])
+        if key == "extCardResource" and isinstance(value, dict):
+            shown = "; ".join(
+                f"{_CARD_RESOURCE_LABELS.get(sub, (sub, sub))[0 if zh else 1]}={_format_info_value(v, 80)}"
+                for sub, v in value.items())
+        else:
+            shown = _format_info_value(value)
+        lines.append(f"  {name} ({key}): {shown}")
+        lines.append(f"      {desc}")
+    if "raw" in info:
+        lines.append("  " + ("raw: 卡片返回的原始 BER-TLV 十六进制，供协议排错使用。"
+                            if zh else "raw: original BER-TLV response in hex, for protocol debugging."))
+    return "\n".join(lines)
+
+
 def _seq_bytes(seq):
     if isinstance(seq, int) and seq < 0:
         raise ValueError("Invalid notification sequence")
@@ -1081,9 +1192,16 @@ async def _run(args):
                                       delay_over_counter=args.delay_over_counter)
     try:
         if args.command == "info":
-            print("EID       :", await sim.get_eid())
-            print("EUICCInfo1:", json.dumps(await sim.get_euicc_info1(), indent=2))
-            print("EUICCInfo2:", json.dumps(await sim.get_euicc_info2(), indent=2))
+            eid = await sim.get_eid()
+            info1 = await sim.get_euicc_info1()
+            info2 = await sim.get_euicc_info2()
+            print("EID       :", eid)
+            print("EUICCInfo1:", json.dumps(info1, indent=2, ensure_ascii=False))
+            print("EUICCInfo2:", json.dumps(info2, indent=2, ensure_ascii=False))
+            print()
+            print(describe_euicc_info(info1, title="EUICCInfo1"))
+            print()
+            print(describe_euicc_info(info2, title="EUICCInfo2"))
         elif args.command == "eid":
             print(await sim.get_eid())
         elif args.command == "list":

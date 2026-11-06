@@ -143,6 +143,31 @@ class InitializationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(reads), 3)
 
 
+class InfoExplanationTests(unittest.TestCase):
+    def test_chinese_explanation_covers_parsed_fields_and_raw(self):
+        info = {
+            "profileVersion": "2.1.0", "svn": "2.2.2", "euiccFirmwareVer": "1.3.6",
+            "extCardResource": {"installedApplication": 3, "freeNonVolatileMemory": 12345,
+                                "freeVolatileMemory": 678},
+            "uiccCapability": "AABB", "ppVersion": "0.0.1", "raw": "BF228202B4",
+        }
+        text = b.describe_euicc_info(info, "zh", "EUICCInfo2")
+        self.assertIn("EUICCInfo2 · 中文解读", text)
+        for label in ("基础配置包版本", "SGP.22 规范版本", "芯片固件版本", "卡内资源",
+                      "UICC 能力", "保护轮廓版本"):
+            self.assertIn(label, text)
+        self.assertIn("2.2.2", text)
+        self.assertIn("空闲非易失存储(字节)=12345", text)
+        self.assertIn("raw: 卡片返回的原始 BER-TLV", text)
+
+    def test_english_explanation_and_unmapped_field(self):
+        text = b.describe_euicc_info({"svn": "2.2.2", "unknownTag": "0102"}, "en", "EUICCInfo2")
+        self.assertIn("explained", text)
+        self.assertIn("SGP.22 specification version", text)
+        self.assertIn("unmapped field", text)
+        self.assertNotIn("中文", text)
+
+
 class APITests(unittest.IsolatedAsyncioTestCase):
     async def test_enable_already_enabled_is_success(self):
         raw = bytes.fromhex("BF3103800102")
