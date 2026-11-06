@@ -483,15 +483,50 @@ APDUs — it could not be exercised, and nothing is wired in.
 
 ---
 
-## 6. Files
+## 6. Python API (for other programs)
+
+`beesim_api.BeeSIMClient` is the stable entry point. It is async (bleak is
+async), returns plain dict/list/str/bool values, and closes the BLE link via an
+async context manager. Dangerous methods (delete, firmware write, power, reset)
+are documented in the source; callers must confirm them themselves.
+
+```python
+import asyncio
+from beesim_api import connect_card
+
+async def main():
+    async with await connect_card() as card:        # scans for BeeSIM*
+        print(await card.eid())
+        for p in await card.profiles():
+            print(p["iccid"], p["profileState"], p.get("profileNickname"))
+        print(await card.info_explained("zh"))      # EUICCInfo2 in Chinese
+        # await card.enable("8985203120001690051")
+        # await card.download("LPA:1$hthk.esimcase.com$MATCHING-ID")
+
+asyncio.run(main())
+```
+
+Use `connect_card(address="...", timeout=45, store_max_lc=120, channel=1,
+delay_over_counter=6, gateway=...)` to override defaults. After a timeout or
+disconnect, create a new client — transport sessions are not reusable.
+
+## 7. Files
+
+The core is layered; each layer only depends on the ones below it. Module-level
+docstrings in Chinese explain the responsibilities and protocol invariants.
 
 | File | What |
 |------|------|
-| `beesim.py` | BLE transport, eUICC/ES10, eSIM download, firmware writes and CLI |
+| `beesim_api.py` | **public API**: `BeeSIMClient` / `connect_card` (start here) |
+| `beesim_tlv.py` | byte / BER-TLV helpers (pure, no I/O) |
+| `beesim_protocol.py` | constants, ES10 response parsing, LPA/firmware/BPP parsing, EUICCInfo explanations |
+| `beesim_transport.py` | BLE GATT connection, 18-byte framing, `connect()` / `read_rssi()` |
+| `beesim_euicc.py` | `Euicc` (APDU session) and `BeeSim` (ES10 command set) |
+| `beesim_download.py` | SGP.22 download flow (ES10b + ES9+) |
+| `beesim.py` | CLI entry point + backwards-compatible re-exports (`import beesim as b`) |
 | `beesim_web.py` | Web 2.3.6 HTTP API, signing and optional direct RSP |
-| `beesim_tui.py`, `beesim_i18n.py` | language selection, Chinese/English Textual UI and strings |
-| `tests/`, `Dockerfile.test` | simulated protocol, HTTP contract and headless TUI tests |
-| `web-api-reference.json` | Web 2.3.6 source hashes, endpoint contracts and compatibility notes |
-| `README.md` | this document |
+| `beesim_tui.py`, `beesim_i18n.py` | bilingual Textual UI and strings (explicit layered imports, no module injection) |
+| `tests/`, `Dockerfile.test` | simulated protocol, HTTP contract, public API and headless TUI tests |
+| `web-api-reference.json` | Web 2.3.6 source hashes, endpoint contracts and intentional differences |
 | `requirements.txt` | `bleak`, `textual`, `cryptography` |
-| `assets/`, `src/` | the downloaded web-app sources (raw JS chunks) |
+| `assets/`, `src/` | historical Web app snapshots (not runtime inputs) |
