@@ -19,7 +19,11 @@ def make_client():
         get_eid=AsyncMock(return_value="89049032000001000000296032006412"),
         get_profiles=AsyncMock(return_value=[{"iccid": "8901", "profileState": "ON"}]),
         get_euicc_info1=AsyncMock(return_value={"svn": "2.2.2"}),
-        get_euicc_info2=AsyncMock(return_value={"svn": "2.2.2", "raw": "BF228202B4"}),
+        get_euicc_info2=AsyncMock(return_value={
+            "svn": "2.2.2", "raw": "BF228202B4",
+            "extCardResource": {"installedApplication": 0,
+                                "freeNonVolatileMemory": 21217,
+                                "freeVolatileMemory": 5048}}),
         list_notifications=AsyncMock(return_value=[{"index": "01"}]),
         retrieve_notification=AsyncMock(return_value=b"\xbf\x2b\x00"),
         send_notification=AsyncMock(return_value={"index": "01"}),
@@ -63,13 +67,24 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
         card = make_client()
         self.assertEqual(await card.eid(), "89049032000001000000296032006412")
         self.assertEqual(await card.profiles(), [{"iccid": "8901", "profileState": "ON"}])
-        self.assertEqual(await card.info(), {"svn": "2.2.2", "raw": "BF228202B4"})
+        self.assertEqual((await card.info())["svn"], "2.2.2")
         self.assertIn("SGP.22 规范版本", await card.info_explained("zh"))
         self.assertEqual(await card.notifications(), [{"index": "01"}])
         self.assertEqual(await card.retrieve_notification("01"), b"\xbf\x2b\x00")
         self.assertEqual(await card.firmware_status(),
                          {"crc": "ABCD", "totalRows": 2, "currentRow": 0})
         self.assertEqual(await card.rssi(), None)
+
+    async def test_capacity_matches_official_display_and_derives_used(self):
+        card = make_client()
+        data = await card.capacity()
+        self.assertEqual(data["freeBytes"], 21217)
+        self.assertEqual(data["freeKB"], "20.72KB")
+        self.assertIsNone(data["usedBytes"])
+        with_total = await card.capacity(total_kb=128)
+        self.assertEqual(with_total["totalBytes"], 131072)
+        self.assertEqual(with_total["usedBytes"], 131072 - 21217)
+        self.assertIn("已消耗容量", await card.capacity_explained(128))
 
     async def test_enable_disable_refresh_by_default(self):
         card = make_client()

@@ -42,8 +42,9 @@ from beesim_protocol import (
     STORE_MAX_LC, _CARD_RESOURCE_LABELS, _EUICC_INFO_FIELDS,
     _format_info_value, _bpp_to_blocks, _notification_metadata,
     _parse_euicc_info, _parse_profile, _profile_meta, _response_error,
-    _seq_bytes, describe_euicc_info, parse_activation_code,
-    parse_firmware_text, parse_installation_result,
+    _seq_bytes, capacity_data, describe_capacity, describe_euicc_info,
+    format_capacity_kb, parse_activation_code, parse_firmware_text,
+    parse_installation_result,
 )
 from beesim_transport import BeeSimTransport, BleakClient, BleakScanner, connect, read_rssi
 from beesim_euicc import BeeSim, Euicc, _REPLAYABLE_ES10_TAGS
@@ -55,7 +56,8 @@ __all__ = [
     "LOGICAL_CHANNEL", "h2b", "b2h", "swap_nibbles", "der_len", "tlv",
     "parse_tlv", "find_tag", "serialize_tlv", "_find_one", "_child",
     "_int_bytes", "_tlv_to_debug", "_tlv_response_complete",
-    "describe_euicc_info", "_format_info_value", "_EUICC_INFO_FIELDS",
+    "describe_euicc_info", "format_capacity_kb", "capacity_data",
+    "describe_capacity", "_format_info_value", "_EUICC_INFO_FIELDS",
     "_CARD_RESOURCE_LABELS", "parse_activation_code", "parse_firmware_text",
     "parse_installation_result", "_parse_profile", "_parse_euicc_info",
     "_notification_metadata", "_profile_meta", "_response_error",
@@ -110,6 +112,13 @@ async def _run(args):
             print(describe_euicc_info(info2, title="EUICCInfo2"))
         elif args.command == "eid":
             print(await sim.get_eid())
+        elif args.command == "capacity":
+            info = await sim.get_euicc_info2()
+            total_bytes = int(args.total_kb * 1024) if args.total_kb and args.total_kb > 0 else None
+            data = capacity_data(info, total_bytes)
+            print(json.dumps(data, indent=2, ensure_ascii=False))
+            print()
+            print(describe_capacity(data))
         elif args.command == "list":
             profiles = await sim.get_profiles(args.selector)
             print(json.dumps(profiles, indent=2, ensure_ascii=False))
@@ -197,6 +206,10 @@ def main():
     sub.add_parser("scan")
     sub.add_parser("info")
     sub.add_parser("eid")
+    capacity = sub.add_parser("capacity", help="show remaining card capacity (official Web feature)")
+    capacity.add_argument("--total-kb", type=float, default=None,
+                          help="nominal total capacity in KB; the card does not report it, "
+                               "so this is only used to derive used capacity")
     profiles = sub.add_parser("list")
     profiles.add_argument("--selector", help="hex tag list (5C...) or ISD-P AID")
     for c in ("enable", "disable", "delete"):

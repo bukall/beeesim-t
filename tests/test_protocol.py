@@ -204,6 +204,48 @@ class ReplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len([x for x in sim.e.t.commands if x[1] == 0xE2]), 1)
 
 
+class CapacityTests(unittest.TestCase):
+    def test_official_kb_format(self):
+        # 官方 JS: (bytes / 1024).toFixed(2) + "KB"
+        self.assertEqual(b.format_capacity_kb(21217), "20.72KB")
+        self.assertEqual(b.format_capacity_kb(1024), "1.00KB")
+        self.assertEqual(b.format_capacity_kb(0), "0.00KB")
+
+    def test_capacity_data_without_nominal_total(self):
+        info = {"extCardResource": {"installedApplication": 0,
+                                   "freeNonVolatileMemory": 20856,
+                                   "freeVolatileMemory": 5048}}
+        data = b.capacity_data(info)
+        self.assertEqual(data["freeBytes"], 20856)
+        self.assertEqual(data["freeKB"], "20.37KB")
+        self.assertEqual(data["freeVolatileBytes"], 5048)
+        self.assertIsNone(data["totalBytes"])
+        self.assertIsNone(data["usedBytes"])
+        self.assertIn("FF21", data["source"])
+        self.assertIn("无法计算", b.describe_capacity(data, "zh"))
+
+    def test_capacity_data_with_nominal_total_derives_used(self):
+        info = {"extCardResource": {"installedApplication": 0,
+                                   "freeNonVolatileMemory": 21217,
+                                   "freeVolatileMemory": 5048}}
+        total = 128 * 1024
+        data = b.capacity_data(info, total)
+        self.assertEqual(data["totalBytes"], total)
+        self.assertEqual(data["usedBytes"], total - 21217)
+        self.assertEqual(data["usedPercent"], round((total - 21217) * 100 / total, 1))
+        self.assertIn("已消耗容量", b.describe_capacity(data, "zh"))
+        self.assertIn("Used:", b.describe_capacity(data, "en"))
+
+    def test_capacity_requires_ext_card_resource(self):
+        with self.assertRaisesRegex(ValueError, "extCardResource"):
+            b.capacity_data({"svn": "2.2.2"})
+
+    def test_euicc_info_explanation_shows_official_kb(self):
+        text = b.describe_euicc_info(
+            {"extCardResource": {"freeNonVolatileMemory": 20856}}, "zh")
+        self.assertIn("20.37KB", text)
+
+
 class APITests(unittest.IsolatedAsyncioTestCase):
     async def test_enable_already_enabled_is_success(self):
         raw = bytes.fromhex("BF3103800102")
