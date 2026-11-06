@@ -181,6 +181,29 @@ class RSSITests(unittest.IsolatedAsyncioTestCase):
             SimpleNamespace(_backend=SimpleNamespace(get_rssi=coroutine_rssi))), -70)
 
 
+class ReplayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_truncated_read_response_is_replayed(self):
+        full = b.tlv([0xBF, 0x2D], b.tlv(0xA0, b.tlv(0xE3, b.tlv(0x5A, bytes.fromhex("9810")))))
+        truncated = bytes.fromhex("BF2D050102")  # declares 5 value bytes, has 2
+        responses = ["9000"] * 4 + [bytes([0x61, len(truncated)]),
+                                    truncated + bytes.fromhex("9000"),
+                                    bytes([0x61, len(full)]),
+                                    full + bytes.fromhex("9000")]
+        sim = b.BeeSim(euicc(responses))
+        profiles = await sim.get_profiles()
+        self.assertEqual(profiles[0]["iccid"], "8901")
+        self.assertEqual(len([x for x in sim.e.t.commands if x[1] == 0xE2]), 2)
+
+    async def test_state_changing_command_is_never_replayed(self):
+        truncated = bytes.fromhex("BF310301")
+        responses = ["9000"] * 4 + [bytes([0x61, len(truncated)]),
+                                    truncated + bytes.fromhex("9000")]
+        sim = b.BeeSim(euicc(responses))
+        with self.assertRaises(ValueError):
+            await sim.enable_profile("8901")
+        self.assertEqual(len([x for x in sim.e.t.commands if x[1] == 0xE2]), 1)
+
+
 class APITests(unittest.IsolatedAsyncioTestCase):
     async def test_enable_already_enabled_is_success(self):
         raw = bytes.fromhex("BF3103800102")

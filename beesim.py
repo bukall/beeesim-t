@@ -202,6 +202,22 @@ def parse_tlv(data: bytes, start: int = 0, end: Optional[int] = None) -> list:
     return out
 
 
+def _tlv_response_complete(data: bytes) -> bool:
+    """True when a card response contains whole top-level BER-TLV objects.
+
+    A BeeSIM card occasionally ends a chained GET RESPONSE early (the Web
+    bundle tolerates this silently; the strict parser here does not). Read-only
+    ES10 commands can be replayed to recover the full response.
+    """
+    if not data:
+        return False
+    try:
+        parse_tlv(data)
+        return True
+    except ValueError:
+        return False
+
+
 def find_tag(nodes: list, *tags: str):
     """Depth-first search through parsed TLV for a tag path (port of `be`/`ye`).
     Returns the matching node's value (bytes for primitive, list for constructed)."""
@@ -533,6 +549,12 @@ class Euicc:
 # --------------------------------------------------------------------------- #
 # ES10 API — the high-level "APIs" the web app exposes (ports of the `Ve` object)
 # --------------------------------------------------------------------------- #
+# Read-only ES10 commands (tag prefix) that are safe to replay when the card
+# returns an incomplete chained response. State-changing commands and the
+# download sequence must never be replayed automatically.
+_REPLAYABLE_ES10_TAGS = {"BF20", "BF22", "BF2D", "BF2E", "BF28", "BF2B", "BF3E"}
+
+
 class BeeSim:
     def __init__(self, euicc: Euicc):
         self.e = euicc
@@ -545,7 +567,15 @@ class BeeSim:
     async def _read(self, command: bytes):
         async with self.e.transaction():
             self.e._counter = 0
-            return await self.e.store_and_read(command)
+            attempts = 3 if command[:2].hex().upper() in _REPLAYABLE_ES10_TAGS else 1
+            raw = b""
+            for attempt in range(attempts):
+                raw = await self.e.store_and_read(command)
+                if attempts == 1 or _tlv_response_complete(raw):
+                    return raw
+                self.e._log("incomplete TLV response; re-reading", attempt + 1)
+                await asyncio.sleep(0.2)
+            return raw
 
     async def get_euicc_info1(self) -> dict:
         raw = await self._read(h2b("BF2000"))
