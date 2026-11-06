@@ -32,7 +32,10 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Ric
 
 from beesim_i18n import translate, translate_error
 from beesim_tlv import b2h, h2b
-from beesim_protocol import describe_euicc_info, parse_activation_code, parse_firmware_text
+from beesim_protocol import (
+    capacity_data, describe_capacity, describe_euicc_info,
+    parse_activation_code, parse_firmware_text,
+)
 from beesim_transport import connect, read_rssi
 from beesim_download import download_profile
 
@@ -180,11 +183,12 @@ def build_app():
         """
         ACTIONS = [("s", "scan"), ("r", "refresh"), ("e", "enable"), ("d", "disable"),
                    ("x", "delete"), ("n", "rename"), ("o", "download"), ("i", "info"),
-                   ("N", "notifications"), ("t", "txpower"), ("a", "apdu"),
+                   ("m", "capacity"), ("N", "notifications"), ("t", "txpower"), ("a", "apdu"),
                    ("c", "disconnect"), ("l", "language"), ("q", "quit")]
         BINDINGS = [Binding(key, action, "APDU" if action == "apdu" else translate(action, "zh")) for key, action in ACTIONS]
         BUTTONS = ["scan", "refresh", "download", "enable", "disable", "delete", "rename", "txpower",
-                   "reset", "info", "notifications", "send_notification", "firmware", "settings", "language", "disconnect"]
+                   "reset", "info", "capacity", "notifications", "send_notification", "firmware",
+                   "settings", "language", "disconnect"]
 
         def __init__(self, address=None, language=None, *, debug=False, settings=None, gateway=None):
             super().__init__()
@@ -200,6 +204,9 @@ def build_app():
             self.busy = False
             self.rssi = None
             self.rssi_ts = 0.0
+            # 标称总容量(KB)，仅用于推导已消耗容量；卡片协议不提供总容量。
+            # 0 表示未提供。会话内记住用户输入，下次打开容量弹窗可直接回车。
+            self.total_kb = 0.0
             self._profiles = []
             self._eid = ""
 
@@ -424,6 +431,34 @@ def build_app():
                 explanation = describe_euicc_info(info, self.language, "EUICCInfo2")
                 self.push_screen(InfoScreen(self.tr("info_title"), raw_json, explanation, self.language))
             self._start("info", perform)
+
+        def action_capacity(self):
+            """官方「查看剩余可用容量」；先询问可选的标称总容量以推导已用容量。"""
+            if not self._guard():
+                return
+
+            def submit(result):
+                # _form() already extracts the single field's value into a string.
+                if result is None:
+                    return
+                raw = result.strip()
+                try:
+                    self.total_kb = max(0.0, float(raw)) if raw else 0.0
+                except ValueError:
+                    self.total_kb = 0.0
+
+                async def perform():
+                    info = await self.sim.get_euicc_info2()
+                    total_bytes = int(self.total_kb * 1024) if self.total_kb > 0 else None
+                    data = capacity_data(info, total_bytes)
+                    raw_json = json.dumps(data, ensure_ascii=False, indent=2)
+                    self.log_line(raw_json)
+                    self.push_screen(InfoScreen(
+                        self.tr("capacity_title"), raw_json,
+                        describe_capacity(data, self.language), self.language))
+                self._start("capacity", perform)
+
+            self._form("capacity_total", submit, value=str(self.total_kb or ""))
 
         def action_notifications(self):
             async def perform():
