@@ -1036,6 +1036,12 @@ async def read_rssi(client) -> Optional[int]:
     nothing — we must query the live connection. bleak exposes this on the
     platform backend: `client._backend.get_rssi()` (CoreBluetooth on macOS,
     BlueZ on Linux). Windows has no equivalent, so None there.
+
+    Windows is an OS limitation, not a bug in this client: WinRT's
+    BluetoothLEDevice exposes no RSSI for a connected device, and bleak 3.x's
+    WinRT backend has no get_rssi() at all. RSSI is only reported by
+    BluetoothLEAdvertisementWatcher.Received (RawSignalStrengthInDBm) while
+    the device advertises — which BeeSIM stops doing after connecting.
     """
     for target in (client, getattr(client, "_backend", None)):
         fn = getattr(target, "get_rssi", None) if target is not None else None

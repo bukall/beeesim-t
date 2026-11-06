@@ -49,7 +49,12 @@ TEXT = {
     "operational": ("业务", "Operational"),
     "provisioning": ("引导", "Provisioning"),
     "stale": ("数据已过期", "stale"),
-    "rssi_unavailable": ("当前平台无法读取实时信号强度。", "Live RSSI is unavailable on this platform."),
+    "rssi_unavailable": (
+        "Windows 的蓝牙 API 不提供已连接设备的实时信号强度：RSSI 仅存在于广播阶段，"
+        "而卡片连接后会停止广播。这是系统限制而非程序故障，此处显示 —；macOS / Linux 可读取。",
+        "Windows exposes no RSSI for a connected BLE device: RSSI only appears in "
+        "advertisements, and the card stops advertising once connected. This is an OS "
+        "limitation, not a bug, so this shows -. macOS/Linux can read the live link."),
     "operation": ("正在{action}…", "{action}…"),
     "done": ("{action}完成。", "{action} completed."),
     "failed": ("{action}失败：{error}", "{action} failed: {error}"),

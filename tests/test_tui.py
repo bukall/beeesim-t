@@ -16,6 +16,8 @@ class LanguageTests(unittest.TestCase):
             self.assertTrue(all(isinstance(value, str) and value for value in pair), key)
         self.assertEqual(translate("profile_count", "zh", count=2), "共 2 个配置。")
         self.assertEqual(translate("profile_count", "en", count=2), "2 profile(s).")
+        self.assertIn("Windows", translate("rssi_unavailable", "zh"))
+        self.assertIn("OS limitation", translate("rssi_unavailable", "en"))
 
 
 class TUITests(unittest.IsolatedAsyncioTestCase):

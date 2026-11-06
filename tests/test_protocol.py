@@ -168,6 +168,19 @@ class InfoExplanationTests(unittest.TestCase):
         self.assertNotIn("中文", text)
 
 
+class RSSITests(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_backend_rssi_returns_none(self):
+        self.assertIsNone(await b.read_rssi(SimpleNamespace()))
+
+    async def test_backend_rssi_is_used_when_available(self):
+        self.assertEqual(await b.read_rssi(SimpleNamespace(get_rssi=lambda: -63)), -63)
+
+        async def coroutine_rssi():
+            return -70
+        self.assertEqual(await b.read_rssi(
+            SimpleNamespace(_backend=SimpleNamespace(get_rssi=coroutine_rssi))), -70)
+
+
 class APITests(unittest.IsolatedAsyncioTestCase):
     async def test_enable_already_enabled_is_success(self):
         raw = bytes.fromhex("BF3103800102")
