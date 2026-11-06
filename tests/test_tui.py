@@ -181,25 +181,25 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertNotEqual(app.screen.__class__.__name__, "InfoScreen")
 
-    async def test_capacity_screen_shows_remaining_and_derived_used(self):
+    async def test_capacity_screen_shows_free_per_profile_and_approx_total(self):
         app = b._build_tui_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
-        app.sim = SimpleNamespace(get_euicc_info2=AsyncMock(return_value={
-            "extCardResource": {"installedApplication": 0,
-                                "freeNonVolatileMemory": 21217,
-                                "freeVolatileMemory": 5048}}))
+        app.sim = SimpleNamespace(
+            get_euicc_info2=AsyncMock(return_value={
+                "extCardResource": {"installedApplication": 0,
+                                    "freeNonVolatileMemory": 21217,
+                                    "freeVolatileMemory": 5048}}),
+            get_profiles=AsyncMock(return_value=[
+                {"iccid": "8901", "profileNickname": "A", "profileSize": 20480},
+                {"iccid": "8902", "profileNickname": "B", "profileSize": 40960},
+            ]))
         app.euicc = SimpleNamespace(t=SimpleNamespace(_closed=False))
         async with app.run_test(size=(110, 40)) as pilot:
             app.action_capacity()
             await pilot.pause()
-            # 先询问可选的标称总容量；填 128 后应推导已消耗容量。
-            self.assertEqual(app.screen.__class__.__name__, "FormScreen")
-            app.screen.query_one(Input).value = "128"
-            await pilot.click("#ok")
-            await pilot.pause()
             await app.workers.wait_for_complete()
             self.assertEqual(app.screen.__class__.__name__, "InfoScreen")
             body = str(app.screen.query_one("#info-explain", Static).render())
-            self.assertIn("20.72KB", body)
-            self.assertIn("已消耗容量", body)
-            self.assertIn("128.00KB", body)
+            self.assertIn("20.72KB", body)   # 剩余可用容量（官方换算）
+            self.assertIn("A: 20.00KB", body)  # 逐卡近似大小
+            self.assertIn("近似总容量", body)  # 已安装合计 + 剩余

@@ -204,9 +204,6 @@ def build_app():
             self.busy = False
             self.rssi = None
             self.rssi_ts = 0.0
-            # 标称总容量(KB)，仅用于推导已消耗容量；卡片协议不提供总容量。
-            # 0 表示未提供。会话内记住用户输入，下次打开容量弹窗可直接回车。
-            self.total_kb = 0.0
             self._profiles = []
             self._eid = ""
 
@@ -433,32 +430,20 @@ def build_app():
             self._start("info", perform)
 
         def action_capacity(self):
-            """官方「查看剩余可用容量」；先询问可选的标称总容量以推导已用容量。"""
+            """官方「查看剩余可用容量」+ 逐卡 profileSize 与近似总容量。"""
             if not self._guard():
                 return
 
-            def submit(result):
-                # _form() already extracts the single field's value into a string.
-                if result is None:
-                    return
-                raw = result.strip()
-                try:
-                    self.total_kb = max(0.0, float(raw)) if raw else 0.0
-                except ValueError:
-                    self.total_kb = 0.0
-
-                async def perform():
-                    info = await self.sim.get_euicc_info2()
-                    total_bytes = int(self.total_kb * 1024) if self.total_kb > 0 else None
-                    data = capacity_data(info, total_bytes)
-                    raw_json = json.dumps(data, ensure_ascii=False, indent=2)
-                    self.log_line(raw_json)
-                    self.push_screen(InfoScreen(
-                        self.tr("capacity_title"), raw_json,
-                        describe_capacity(data, self.language), self.language))
-                self._start("capacity", perform)
-
-            self._form("capacity_total", submit, value=str(self.total_kb or ""))
+            async def perform():
+                info = await self.sim.get_euicc_info2()
+                profiles = await self.sim.get_profiles()
+                data = capacity_data(info, profiles)
+                raw_json = json.dumps(data, ensure_ascii=False, indent=2)
+                self.log_line(raw_json)
+                self.push_screen(InfoScreen(
+                    self.tr("capacity_title"), raw_json,
+                    describe_capacity(data, self.language), self.language))
+            self._start("capacity", perform)
 
         def action_notifications(self):
             async def perform():

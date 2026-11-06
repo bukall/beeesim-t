@@ -211,28 +211,31 @@ class BeeSIMClient:
         """返回 EUICCInfo2 的人类可读解读（zh 中文 / 其它为英文），JSON 另行取 info()。"""
         return describe_euicc_info(await self.info(), language, "EUICCInfo2")
 
-    async def capacity(self, total_kb: Optional[float] = None) -> dict:
-        """读取卡片剩余可用容量（对应官方 Web「查看剩余可用容量」）。
+    async def capacity(self, *, include_profiles: bool = True) -> dict:
+        """读取剩余容量、逐卡近似大小与近似总容量。
 
-        官方实现是 EUICCInfo2.extCardResource.freeNonVolatileMemory 按
-        ``bytes / 1024`` 保留两位显示成 KB。本方法返回结构化 dict：
-        ``freeKB`` / ``freeBytes``、空闲易失内存、已安装应用数，以及
-        可选的 ``totalBytes`` / ``usedBytes`` / ``usedPercent``。
+        对应官方 Web「查看剩余可用容量」加 NekokoLPA2 的逐卡大小：
+        * 剩余容量 = ``EUICCInfo2.extCardResource.freeNonVolatileMemory``，按
+          官方 ``bytes/1024`` 两位小数显示为 KB；
+        * 每张配置的近似大小 = ``ProfileInfo.profileSize``（tag 9F25，字节），
+          由 ``rspCapability`` 的 ``profileSizeInProfilesInfoSupport``(bit 14) 控制；
+        * **近似总容量** = sum(profileSize) + 剩余容量。
 
-        ⚠ 关于总容量：ETSI TS 102 226 / SGP.22 的 extCardResource **只有空闲
-        容量**，卡片不报告总容量或已用容量。传入 ``total_kb``（标称总容量，
-        由调用方从规格书等处得知）后，程序才推导已消耗容量与占比；不传时
-        这些字段为 None。程序不会替你猜测芯片规格。
+        ⚠ 协议（ETSI TS 102 226 / SGP.22）**没有**总容量字段，因此总容量只能
+        这样估算，不含系统/文件系统开销，且只统计已报告 profileSize 的配置；
+        未报告的配置其大小为 None。程序不会引入外部猜测的芯片容量。
+
+        ``include_profiles=False`` 时不读取配置列表（省一次 BLE 交互），此时
+        不统计逐卡大小与近似总容量。
         """
         self._ensure_open()
         info = await self.euicc_info2()
-        total_bytes = int(total_kb * 1024) if total_kb and total_kb > 0 else None
-        return capacity_data(info, total_bytes)
+        profiles = await self.profiles() if include_profiles else []
+        return capacity_data(info, profiles)
 
-    async def capacity_explained(self, total_kb: Optional[float] = None,
-                                 language: str = "zh") -> str:
+    async def capacity_explained(self, language: str = "zh") -> str:
         """``capacity()`` 的中/英文可读说明，适合直接打印到终端或弹窗。"""
-        return describe_capacity(await self.capacity(total_kb), language)
+        return describe_capacity(await self.capacity(), language)
 
     async def raw_apdu(self, hex_command: str) -> str:
         """发送一条原始 APDU（十六进制字符串），返回响应的十六进制字符串。

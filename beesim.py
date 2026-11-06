@@ -114,8 +114,8 @@ async def _run(args):
             print(await sim.get_eid())
         elif args.command == "capacity":
             info = await sim.get_euicc_info2()
-            total_bytes = int(args.total_kb * 1024) if args.total_kb and args.total_kb > 0 else None
-            data = capacity_data(info, total_bytes)
+            profiles = await sim.get_profiles()
+            data = capacity_data(info, profiles)
             print(json.dumps(data, indent=2, ensure_ascii=False))
             print()
             print(describe_capacity(data))
@@ -206,10 +206,7 @@ def main():
     sub.add_parser("scan")
     sub.add_parser("info")
     sub.add_parser("eid")
-    capacity = sub.add_parser("capacity", help="show remaining card capacity (official Web feature)")
-    capacity.add_argument("--total-kb", type=float, default=None,
-                          help="nominal total capacity in KB; the card does not report it, "
-                               "so this is only used to derive used capacity")
+    sub.add_parser("capacity", help="free capacity, per-profile size and approximate total")
     profiles = sub.add_parser("list")
     profiles.add_argument("--selector", help="hex tag list (5C...) or ISD-P AID")
     for c in ("enable", "disable", "delete"):

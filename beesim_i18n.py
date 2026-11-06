@@ -16,11 +16,8 @@ TEXT = {
     "info_title": ("芯片信息 EUICCInfo2", "Card info EUICCInfo2"),
     "info_raw_label": ("原始数据（JSON）", "Raw data (JSON)"),
     "info_explain_label": ("字段解读", "Field explanation"),
-    "capacity": ("剩余容量", "Capacity"),
-    "capacity_title": ("剩余可用容量", "Remaining capacity"),
-    "capacity_total": (
-        "标称总容量（KB，可留空；卡片协议只报告空闲容量，不提供总容量）",
-        "Nominal total capacity (KB, optional; the card only reports free memory)"),
+    "capacity": ("容量", "Capacity"),
+    "capacity_title": ("容量：剩余 / 逐卡 / 近似总容量", "Capacity: free / per-profile / approx. total"),
     "apdu": ("APDU", "APDU"),
     "notifications": ("通知", "Notifications"),
     "send_notification": ("发送通知", "Send notification"),

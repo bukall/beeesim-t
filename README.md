@@ -46,8 +46,7 @@ python beesim.py enable  <iccid>       # enable a profile (then `reset`)
 python beesim.py disable <iccid>
 python beesim.py rename  <iccid> "Work SIM"
 python beesim.py eid
-python beesim.py capacity               # remaining capacity, same KB format as the official Web UI
-python beesim.py capacity --total-kb 128  # also derive used capacity from a nominal total
+python beesim.py capacity               # free capacity, per-profile size, approximate total
 python beesim.py txpower 4              # set BLE TX power (0=min .. 4=max)
 python beesim.py download "LPA:1$rsp.example.com$MATCHING-ID"   # download an eSIM
 python beesim.py --help                # full command list
@@ -502,8 +501,7 @@ async def main():
         for p in await card.profiles():
             print(p["iccid"], p["profileState"], p.get("profileNickname"))
         print(await card.info_explained("zh"))      # EUICCInfo2 in Chinese
-        print(await card.capacity_explained())      # remaining capacity
-        # await card.capacity(total_kb=128)        # derive used capacity
+        print(await card.capacity_explained())      # free / per-profile / approx. total
         # await card.enable("8985203120001690051")
         # await card.download("LPA:1$hthk.esimcase.com$MATCHING-ID")
 
@@ -514,19 +512,24 @@ Use `connect_card(address="...", timeout=45, store_max_lc=120, channel=1,
 delay_over_counter=6, gateway=...)` to override defaults. After a timeout or
 disconnect, create a new client — transport sessions are not reusable.
 
-### Remaining capacity
+### Remaining capacity, per-profile size, approximate total
 
 The official Web button "View Remaining Capacity" (`view-memory`) calls
 `GetEUICCInfo2()` and renders `extCardResource.freeNonVolatileMemory` as
-`(bytes / 1024).toFixed(2) + "KB"`. `capacity` / `capacity_explained` /
-`BeeSIMClient.capacity()` do exactly that, and also expose free volatile memory
-and installed-application count.
+`(bytes / 1024).toFixed(2) + "KB"`; `capacity` / `capacity_explained` /
+`BeeSIMClient.capacity()` do exactly that (plus free volatile memory and the
+installed-application count).
 
-ETSI TS 102 226 §8.2.1.7.2 (GET DATA `FF21`) defines **only** free memory —
-there is no total or used-capacity field on the card. Supplying a nominal
-total (`--total-kb`, `capacity(total_kb=...)`, or the TUI input) derives used
-capacity and percentage; without it those fields are `null`. The program never
-guesses a chip's capacity.
+Per-profile size — as NekokoLPA2 displays — comes from `GetProfilesInfo`: each
+`ProfileInfo` (tag `E3`) carries `profileSize` (tag `9F25`, bytes) when the
+card's `rspCapability` sets `profileSizeInProfilesInfoSupport` (bit 14). Profiles
+that do not report a size show as `not reported`.
+
+Approximate total capacity = sum(profileSize) + free memory. ETSI TS 102 226
+§8.2.1.7.2 defines **only** free memory, so there is no authoritative total on
+the card: this figure excludes system/file-system overhead and only counts
+profiles that report a size. The program never substitutes a guessed chip
+capacity.
 
 ## 7. Files
 

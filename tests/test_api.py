@@ -17,7 +17,10 @@ def make_client():
     sim = SimpleNamespace(
         protocol="gsma/rsp/v2.2.2",
         get_eid=AsyncMock(return_value="89049032000001000000296032006412"),
-        get_profiles=AsyncMock(return_value=[{"iccid": "8901", "profileState": "ON"}]),
+        get_profiles=AsyncMock(return_value=[
+            {"iccid": "8901", "profileState": "ON", "profileNickname": "A", "profileSize": 20480},
+            {"iccid": "8902", "profileState": "OFF", "profileNickname": "B"},
+        ]),
         get_euicc_info1=AsyncMock(return_value={"svn": "2.2.2"}),
         get_euicc_info2=AsyncMock(return_value={
             "svn": "2.2.2", "raw": "BF228202B4",
@@ -66,7 +69,7 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
     async def test_read_methods_delegate_and_return_plain_data(self):
         card = make_client()
         self.assertEqual(await card.eid(), "89049032000001000000296032006412")
-        self.assertEqual(await card.profiles(), [{"iccid": "8901", "profileState": "ON"}])
+        self.assertEqual([p["iccid"] for p in await card.profiles()], ["8901", "8902"])
         self.assertEqual((await card.info())["svn"], "2.2.2")
         self.assertIn("SGP.22 规范版本", await card.info_explained("zh"))
         self.assertEqual(await card.notifications(), [{"index": "01"}])
@@ -75,16 +78,19 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
                          {"crc": "ABCD", "totalRows": 2, "currentRow": 0})
         self.assertEqual(await card.rssi(), None)
 
-    async def test_capacity_matches_official_display_and_derives_used(self):
+    async def test_capacity_matches_official_display_and_sums_profiles(self):
         card = make_client()
         data = await card.capacity()
         self.assertEqual(data["freeBytes"], 21217)
         self.assertEqual(data["freeKB"], "20.72KB")
-        self.assertIsNone(data["usedBytes"])
-        with_total = await card.capacity(total_kb=128)
-        self.assertEqual(with_total["totalBytes"], 131072)
-        self.assertEqual(with_total["usedBytes"], 131072 - 21217)
-        self.assertIn("已消耗容量", await card.capacity_explained(128))
+        # 只有 8901 报告了 profileSize，8902 未报告
+        self.assertEqual(data["installedBytes"], 20480)
+        self.assertEqual(data["totalBytesApprox"], 20480 + 21217)
+        self.assertEqual(data["profilesWithSize"], 1)
+        self.assertIn("近似总容量", await card.capacity_explained())
+        skip = await card.capacity(include_profiles=False)
+        self.assertIsNone(skip["totalBytesApprox"])
+        self.assertEqual(skip["profiles"], [])
 
     async def test_enable_disable_refresh_by_default(self):
         card = make_client()
