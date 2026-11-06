@@ -205,36 +205,43 @@ class ReplayTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CapacityTests(unittest.TestCase):
+    INFO = {"extCardResource": {"installedApplication": 0,
+                                "freeNonVolatileMemory": 21214,
+                                "freeVolatileMemory": 5098}}
+
     def test_official_kb_format(self):
         # 官方 JS: (bytes / 1024).toFixed(2) + "KB"
         self.assertEqual(b.format_capacity_kb(21217), "20.72KB")
         self.assertEqual(b.format_capacity_kb(1024), "1.00KB")
         self.assertEqual(b.format_capacity_kb(0), "0.00KB")
 
-    def test_capacity_data_without_nominal_total(self):
-        info = {"extCardResource": {"installedApplication": 0,
-                                   "freeNonVolatileMemory": 20856,
-                                   "freeVolatileMemory": 5048}}
-        data = b.capacity_data(info)
-        self.assertEqual(data["freeBytes"], 20856)
-        self.assertEqual(data["freeKB"], "20.37KB")
-        self.assertEqual(data["freeVolatileBytes"], 5048)
-        self.assertIsNone(data["totalBytes"])
-        self.assertIsNone(data["usedBytes"])
-        self.assertIn("FF21", data["source"])
+    def test_profile_size_field_is_parsed(self):
+        e3 = b.tlv(0xE3, b.tlv(0x5A, bytes.fromhex("9810")),
+                   b.tlv([0x9F, 0x25], bytes.fromhex("0003E8")))
+        profile = b._parse_profile(b.parse_tlv(e3)[0])
+        self.assertEqual(profile["profileSize"], 1000)
+
+    def test_capacity_without_profile_sizes(self):
+        data = b.capacity_data(self.INFO)
+        self.assertEqual(data["freeKB"], "20.72KB")
+        self.assertEqual(data["freeVolatileBytes"], 5098)
+        self.assertIsNone(data["totalBytesApprox"])
         self.assertIn("无法计算", b.describe_capacity(data, "zh"))
 
-    def test_capacity_data_with_nominal_total_derives_used(self):
-        info = {"extCardResource": {"installedApplication": 0,
-                                   "freeNonVolatileMemory": 21217,
-                                   "freeVolatileMemory": 5048}}
-        total = 128 * 1024
-        data = b.capacity_data(info, total)
-        self.assertEqual(data["totalBytes"], total)
-        self.assertEqual(data["usedBytes"], total - 21217)
-        self.assertEqual(data["usedPercent"], round((total - 21217) * 100 / total, 1))
-        self.assertIn("已消耗容量", b.describe_capacity(data, "zh"))
-        self.assertIn("Used:", b.describe_capacity(data, "en"))
+    def test_profile_sizes_sum_to_approximate_total(self):
+        profiles = [
+            {"iccid": "8901", "profileNickname": "A", "profileSize": 20480},
+            {"iccid": "8902", "profileNickname": "B", "profileSize": 40960},
+            {"iccid": "8903", "profileNickname": "C"},   # 卡未报告 profileSize
+        ]
+        data = b.capacity_data(self.INFO, profiles)
+        self.assertEqual(data["installedBytes"], 61440)
+        self.assertEqual(data["totalBytesApprox"], 61440 + 21214)
+        self.assertEqual(data["profilesWithSize"], 2)
+        self.assertIsNone(data["profiles"][2]["profileSize"])
+        self.assertEqual(data["usedPercentApprox"], round(61440 * 100 / (61440 + 21214), 1))
+        self.assertIn("近似总容量", b.describe_capacity(data, "zh"))
+        self.assertIn("Approx. total capacity", b.describe_capacity(data, "en"))
 
     def test_capacity_requires_ext_card_resource(self):
         with self.assertRaisesRegex(ValueError, "extCardResource"):

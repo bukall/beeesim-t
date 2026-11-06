@@ -113,6 +113,15 @@ def _parse_profile(e3: dict) -> dict:
             out["profileName"] = text(v)
         elif t == "95":
             out["profileClass"] = {b"\x01": "provisioning", b"\x02": "operational"}.get(v, "test")
+        elif t == "9F24" and isinstance(v, bytes) and v:
+            # SGP.22 ProfileInfo.enabledOnEsimPort（多 eSIM 端口卡标识启用端口）
+            out["enabledOnEsimPort"] = int.from_bytes(v, "big")
+        elif t == "9F25" and isinstance(v, bytes) and v:
+            # SGP.22 ProfileInfo.profileSize：卡报告的该配置近似大小（字节）。
+            # 由 EUICCInfo2 rspCapability 的 profileSizeInProfilesInfoSupport
+            # (bit 14) 控制；不支持的卡不带此字段。官方/NekokoLPA2 据此显示
+            # 每张配置的大小，并可累加出近似总容量。
+            out["profileSize"] = int.from_bytes(v, "big")
         elif t == "93":
             out["iconType"] = "jpg" if v == b"\x01" else "png"
         elif t == "94":
@@ -274,18 +283,21 @@ def describe_euicc_info(info: dict, language: str = "zh", title: Optional[str] =
 
 
 # --------------------------------------------------------------------------- #
-# 剩余可用容量（官方 Web「查看剩余可用容量」功能）
+# 剩余可用容量与近似总容量
 #
-# 官方实现（本地 src/ JS，函数 S / toExtCardResource）：
-#   await GetEUICCInfo2()
-#   -> extCardResource.freeNonVolatileMemory
+# 剩余容量（官方 Web「查看剩余可用容量」，本地 src/ JS 函数 S / toExtCardResource）：
+#   await GetEUICCInfo2() -> extCardResource.freeNonVolatileMemory
 #   -> (bytes / 1024).toFixed(2) + "KB"
-#   -> 弹窗标题 common.free-memory「剩余可用容量」
 #
-# 协议依据：ETSI TS 102 226 §8.2.1.7.2（GET DATA 'FF21' Extended Card Resources）
-# 只定义三个字段：81 installedApplication、82 freeNonVolatileMemory、
-# 83 freeVolatileMemory。**没有总容量 / 已用容量字段**，因此这两项只能由调用方
-# 提供「标称总容量」后推导，程序绝不凭空猜测芯片规格。
+# 每张配置的近似大小（与 NekokoLPA2 一致）：
+#   GetProfilesInfo 响应里每个 ProfileInfo(E3) 的 tag 9F25 profileSize（字节），
+#   由 EUICCInfo2.rspCapability 的 profileSizeInProfilesInfoSupport (bit 14) 控制；
+#   不支持的卡不带该字段，此时单卡大小为 None。
+#
+# 近似总容量：sum(每张配置的 profileSize) + freeNonVolatileMemory。
+# 协议（ETSI TS 102 226 §8.2.1.7.2 / SGP.22）**没有**总容量字段，所以上式只是
+# 估算：不含系统/文件系统开销，且只统计已报告 profileSize 的配置。程序绝不
+# 引入「标称总容量」这类外部猜测值（已按需求移除）。
 # --------------------------------------------------------------------------- #
 def format_capacity_kb(num_bytes: int) -> str:
     """按官方 Web 的格式把字节数转为 KB 字符串：bytes/1024 保留两位 + 'KB'。
@@ -296,25 +308,31 @@ def format_capacity_kb(num_bytes: int) -> str:
     return f"{num_bytes / 1024:.2f}KB"
 
 
-def capacity_data(info: dict, total_bytes: Optional[int] = None) -> dict:
-    """从 EUICCInfo2 提取容量数据，可选按标称总容量推导已消耗与占比。
+def capacity_data(info: dict, profiles: Optional[List[dict]] = None) -> dict:
+    """从 EUICCInfo2 + 配置列表计算容量数据（剩余、逐卡大小、近似总容量）。
 
     参数
     ----
     info
         :func:`_parse_euicc_info` / ``BeeSim.get_euicc_info2()`` 的返回值。
-    total_bytes
-        调用方提供的**标称**总非易失容量（字节）；None / 0 表示不推导已用容量。
+    profiles
+        :func:`_parse_profile` / ``BeeSim.get_profiles()`` 的返回值列表；
+        传 None 或空列表时不统计逐卡大小，也就无法给出近似总容量。
 
     返回
     ----
-    dict，字段均为可选的安全值：
-      freeBytes / freeKB                 卡片报告的剩余可用容量（官方显示值）
+    dict：
+      freeBytes / freeKB                 剩余可用容量（官方显示值）
       freeVolatileBytes / freeVolatileKB 空闲易失内存
       installedApplication               已安装应用数
-      totalBytes / totalKB / totalSource 标称总容量及其来源（未提供时为 None）
-      usedBytes / usedKB / usedPercent   推导出的已消耗容量（未提供总量时为 None）
-      source                             卡的字段来源说明
+      profiles                           逐卡 {iccid, nickname, profileSize, profileSizeKB}
+      profilesWithSize                   报告了 profileSize 的配置数量
+      profileSizeSource                  单卡大小的字段来源
+      installedBytes / installedKB       已安装配置占用合计（仅含报告了大小的）
+      totalBytesApprox / totalKBApprox   近似总容量 = installed + free
+      usedPercentApprox                  近似已用占比（%）
+      source                             卡字段来源说明
+    未能统计时（无任何 profileSize），installed/total/used 相关字段为 None。
     """
     resource = info.get("extCardResource")
     if not isinstance(resource, dict):
@@ -322,6 +340,21 @@ def capacity_data(info: dict, total_bytes: Optional[int] = None) -> dict:
     free = int(resource.get("freeNonVolatileMemory", 0))
     volatile = int(resource.get("freeVolatileMemory", 0))
     apps = int(resource.get("installedApplication", 0))
+    items: list[dict[str, Any]] = []
+    installed = 0
+    sized = 0
+    for profile in profiles or []:
+        size = profile.get("profileSize")
+        known = size if isinstance(size, int) else None
+        items.append({
+            "iccid": profile.get("iccid"),
+            "nickname": profile.get("profileNickname") or profile.get("profileName") or "",
+            "profileSize": known,
+            "profileSizeKB": format_capacity_kb(known) if known is not None else None,
+        })
+        if known is not None:
+            installed += known
+            sized += 1
     data: dict[str, Any] = {
         "freeBytes": free,
         "freeKB": format_capacity_kb(free),
@@ -329,22 +362,23 @@ def capacity_data(info: dict, total_bytes: Optional[int] = None) -> dict:
         "freeVolatileKB": format_capacity_kb(volatile),
         "installedApplication": apps,
         "source": "EUICCInfo2.extCardResource (ETSI TS 102 226 FF21)",
-        "totalBytes": None,
-        "totalKB": None,
-        "totalSource": None,
-        "usedBytes": None,
-        "usedKB": None,
-        "usedPercent": None,
+        "profiles": items,
+        "profilesWithSize": sized,
+        "profileSizeSource": "ProfileInfo.profileSize (tag 9F25, SGP.22)",
+        "installedBytes": None,
+        "installedKB": None,
+        "totalBytesApprox": None,
+        "totalKBApprox": None,
+        "usedPercentApprox": None,
     }
-    if total_bytes and total_bytes > 0:
-        used = max(0, total_bytes - free)
+    if sized:
+        total_approx = installed + free
         data.update({
-            "totalBytes": total_bytes,
-            "totalKB": format_capacity_kb(total_bytes),
-            "totalSource": "user-supplied nominal capacity (not reported by the card)",
-            "usedBytes": used,
-            "usedKB": format_capacity_kb(used),
-            "usedPercent": round(used * 100 / total_bytes, 1),
+            "installedBytes": installed,
+            "installedKB": format_capacity_kb(installed),
+            "totalBytesApprox": total_approx,
+            "totalKBApprox": format_capacity_kb(total_approx),
+            "usedPercentApprox": round(installed * 100 / total_approx, 1) if total_approx else None,
         })
     return data
 
@@ -352,7 +386,7 @@ def capacity_data(info: dict, total_bytes: Optional[int] = None) -> dict:
 def describe_capacity(data: dict, language: str = "zh") -> str:
     """把 :func:`capacity_data` 的结果转成中/英文可读说明。"""
     zh = language != "en"
-    lines = [f"【{'剩余可用容量' if zh else 'Remaining capacity'}】"]
+    lines = [f"【{'容量' if zh else 'Capacity'}】"]
     if zh:
         lines.append(f"  剩余可用容量: {data['freeKB']} ({data['freeBytes']} 字节)")
         lines.append(f"  空闲易失内存: {data['freeVolatileKB']} ({data['freeVolatileBytes']} 字节)")
@@ -361,22 +395,31 @@ def describe_capacity(data: dict, language: str = "zh") -> str:
         lines.append(f"  Remaining: {data['freeKB']} ({data['freeBytes']} bytes)")
         lines.append(f"  Free volatile memory: {data['freeVolatileKB']} ({data['freeVolatileBytes']} bytes)")
         lines.append(f"  Installed applications: {data['installedApplication']}")
-    if data["totalBytes"] is None:
-        lines.append("  " + ("标称总容量: 未提供（卡片协议不包含总容量字段）"
-                            if zh else "Nominal total capacity: not supplied (the card protocol has no total field)"))
-        lines.append("  " + ("已消耗容量: 无法计算；提供标称总容量后即可推导"
-                            if zh else "Used capacity: unavailable; supply a nominal total to derive it"))
-        lines.append("  " + ("提示: CLI --total-kb / API capacity(total_kb=...) / TUI 输入框"
-                            if zh else "Tip: CLI --total-kb / API capacity(total_kb=...) / TUI input"))
-    else:
+    if data["profiles"]:
+        lines.append("  " + ("各配置近似大小（来自 profileSize）:" if zh
+                            else "Approximate size per profile (from profileSize):"))
+        for item in data["profiles"]:
+            label = item["nickname"] or item["iccid"] or "?"
+            if item["profileSize"] is not None:
+                suffix = (f"{item['profileSizeKB']} ({item['profileSize']} 字节)" if zh
+                          else f"{item['profileSizeKB']} ({item['profileSize']} bytes)")
+            else:
+                suffix = "未报告" if zh else "not reported"
+            lines.append(f"    {label}: {suffix}")
+    if data["totalBytesApprox"] is not None:
         if zh:
-            lines.append(f"  标称总容量: {data['totalKB']} ({data['totalBytes']} 字节，调用方提供)")
-            lines.append(f"  已消耗容量: {data['usedKB']} ({data['usedBytes']} 字节)，占 {data['usedPercent']}%")
+            lines.append(f"  已安装合计: {data['installedKB']} ({data['installedBytes']} 字节)")
+            lines.append(f"  近似总容量: {data['totalKBApprox']} ({data['totalBytesApprox']} 字节) = 已安装 + 剩余")
+            lines.append(f"  近似已用占比: {data['usedPercentApprox']}%")
         else:
-            lines.append(f"  Nominal total: {data['totalKB']} ({data['totalBytes']} bytes, user-supplied)")
-            lines.append(f"  Used: {data['usedKB']} ({data['usedBytes']} bytes), {data['usedPercent']}%")
-    lines.append("  " + ("说明: 卡片只报告空闲容量；总容量与已消耗基于所提供的标称值计算。"
-                        if zh else "Note: the card reports free memory only; total/used are derived from the supplied nominal value."))
+            lines.append(f"  Installed total: {data['installedKB']} ({data['installedBytes']} bytes)")
+            lines.append(f"  Approx. total capacity: {data['totalKBApprox']} ({data['totalBytesApprox']} bytes) = installed + free")
+            lines.append(f"  Approx. used: {data['usedPercentApprox']}%")
+    else:
+        lines.append("  " + ("近似总容量: 无法计算（卡未报告 profileSize）" if zh
+                            else "Approx. total capacity: unavailable (card reports no profileSize)"))
+    lines.append("  " + ("说明: 卡片协议不含总容量字段；近似总容量 = 各配置 profileSize 之和 + 剩余可用容量，不含系统开销。"
+                        if zh else "Note: the protocol has no total-capacity field; the approximation sums profileSize plus free memory and excludes system overhead."))
     return "\n".join(lines)
 
 
