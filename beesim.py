@@ -669,6 +669,9 @@ class BeeSim:
     async def remove_notification(self, seq) -> bool:
         r = await self._read(tlv([0xBF, 0x30], tlv(0x80, _seq_bytes(seq))))
         code = find_tag(parse_tlv(r), "80")
+        # Web bundle: 00 = removed, 01 = nothing to delete ("notification not found").
+        if code == b"\x01":
+            raise RuntimeError("Notification not found")
         if code != b"\x00":
             raise RuntimeError("RemoveNotificationFromList failed: " + b2h(code or b""))
         return True
@@ -737,7 +740,9 @@ class BeeSim:
             pending = h2b(serialize_tlv(node))
             await (gateway or WebAPI()).execute("handleNotification", smdp, self.protocol,
                                                {"pendingNotification": base64.b64encode(pending).decode()})
-            await self.remove_notification(data["index"])
+            # The Web bundle deletes by the sequence the caller requested, not
+            # by the index parsed out of the notification body.
+            await self.remove_notification(seq)
             return data
 
     async def download_firmware(self, rows, total=None, start=1, log=print):

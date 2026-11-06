@@ -255,6 +255,22 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         import base64
         self.assertEqual(gateway.execute.call_args.args[3]["pendingNotification"], base64.b64encode(item).decode())
 
+    async def test_send_notification_deletes_requested_sequence(self):
+        metadata = b.tlv([0xBF, 0x2F], b.tlv(0x80, b"\x09"), b.tlv(0x0C, b"rsp.example.com"))
+        item = b.tlv(0x30, metadata)
+        raw = b.tlv([0xBF, 0x2B], b.tlv(0xA0, item))
+        sim = b.BeeSim(euicc([]))
+        sim.retrieve_notification = AsyncMock(return_value=raw)
+        sim.remove_notification = AsyncMock()
+        gateway = SimpleNamespace(execute=AsyncMock(return_value={}))
+        await sim.send_notification("01", gateway)
+        sim.remove_notification.assert_awaited_once_with("01")
+
+    async def test_remove_notification_not_found_result(self):
+        sim = b.BeeSim(euicc(response_sequence(bytes.fromhex("BF3003800101"))))
+        with self.assertRaisesRegex(RuntimeError, "Notification not found"):
+            await sim.remove_notification("01")
+
     async def test_firmware_headers_and_failure_stop(self):
         e = euicc(["10000001", "10000001", "9000"])
         await b.BeeSim(e).download_firmware(["F001", "F200"], log=lambda _: None)
