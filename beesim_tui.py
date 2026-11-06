@@ -1,4 +1,20 @@
-"""Bilingual Textual UI. Imported lazily by beesim so the CLI stays independent."""
+"""Bilingual Textual UI (Textual).
+
+架构说明（面向维护者 / AI）
+--------------------------
+本模块通过显式 import 使用分层核心，不再接收「整个模块对象」作为依赖注入：
+
+    beesim_tlv        字节 / BER-TLV
+    beesim_protocol   协议常量与解析（激活码 / 固件文本 / EUICCInfo 解读）
+    beesim_transport  BLE 连接与 RSSI
+    beesim_download   SGP.22 下载流程
+    beesim_i18n       中英文案
+
+因此 build_app() 无参数，UI 与核心是静态依赖，类型可静态检查、调用点可搜索。
+运行时可变配置（地址、语言、通信参数、RSP 网关）仍通过 App 构造函数传入。
+
+被 beesim._build_tui_app() 懒加载，保证 CLI 在没有 textual 时也能工作。
+"""
 from __future__ import annotations
 
 import asyncio
@@ -15,9 +31,13 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, RichLog, Select, Static
 
 from beesim_i18n import translate, translate_error
+from beesim_tlv import b2h, h2b
+from beesim_protocol import describe_euicc_info, parse_activation_code, parse_firmware_text
+from beesim_transport import connect, read_rssi
+from beesim_download import download_profile
 
 
-def build_app(api):
+def build_app():
     class LanguageScreen(ModalScreen[str]):
         BINDINGS = [Binding("escape", "dismiss_language", show=False)]
 
@@ -307,7 +327,7 @@ def build_app(api):
         async def _connect(self):
             self.query_one("#status", Static).update(self.tr("scanning"))
             try:
-                self.client, self.sim, self.euicc = await api.connect(self.address, self.apdu_debug, log=self.progress, **self.settings)
+                self.client, self.sim, self.euicc = await connect(self.address, self.apdu_debug, log=self.progress, **self.settings)
                 self.euicc.on_log = self.log_line
                 self.log_line(self.tr("reading_eid"))
                 self.query_one("#devname", Static).update(str(self.client.address))
@@ -377,7 +397,7 @@ def build_app(api):
                 return
             def activation(code):
                 try:
-                    smdp, matching, required = api.parse_activation_code(code)
+                    smdp, matching, required = parse_activation_code(code)
                 except ValueError as exc:
                     self.log_line(self.tr("failed", action=self.tr("download"), error=str(exc)))
                     return
@@ -386,7 +406,7 @@ def build_app(api):
                         self.log_line(self.tr("confirmation_required"))
                         return
                     async def perform():
-                        await api.download_profile(self.sim, self.euicc, smdp, matching, confirmation_code or None,
+                        await download_profile(self.sim, self.euicc, smdp, matching, confirmation_code or None,
                                                    log=self.progress, gateway=self.gateway)
                         self.log_line(self.tr("download_ok"))
                         await self._load_profiles()
@@ -401,7 +421,7 @@ def build_app(api):
                 info = await self.sim.get_euicc_info2()
                 raw_json = json.dumps(info, ensure_ascii=False, indent=2)
                 self.log_line(raw_json)
-                explanation = api.describe_euicc_info(info, self.language, "EUICCInfo2")
+                explanation = describe_euicc_info(info, self.language, "EUICCInfo2")
                 self.push_screen(InfoScreen(self.tr("info_title"), raw_json, explanation, self.language))
             self._start("info", perform)
 
@@ -416,7 +436,7 @@ def build_app(api):
                 return
             def submit(seq):
                 try:
-                    if not api.h2b(seq):
+                    if not h2b(seq):
                         return
                 except ValueError as exc:
                     self.log_line(str(exc))
@@ -430,7 +450,7 @@ def build_app(api):
                 return
             def submit(value):
                 try:
-                    command = api.h2b(value)
+                    command = h2b(value)
                     if len(command) < 4:
                         raise ValueError("APDU")
                 except ValueError:
@@ -438,10 +458,10 @@ def build_app(api):
                     return
                 async def perform():
                     try:
-                        self.log_line(api.b2h(await self.euicc.send_command(command, reinit_on_6881=False)))
+                        self.log_line(b2h(await self.euicc.send_command(command, reinit_on_6881=False)))
                     finally:
                         self.euicc.inited = False
-                self.push_screen(ConfirmScreen(self.tr("raw_question", apdu=api.b2h(command)), self.language),
+                self.push_screen(ConfirmScreen(self.tr("raw_question", apdu=b2h(command)), self.language),
                                  lambda yes: self._start("apdu", perform) if yes else None)
             self._form("raw_apdu", submit)
 
@@ -472,7 +492,7 @@ def build_app(api):
                 return
             def submit(path):
                 try:
-                    content = api.parse_firmware_text(Path(path).expanduser().read_text())
+                    content = parse_firmware_text(Path(path).expanduser().read_text())
                 except (OSError, ValueError):
                     self.log_line(self.tr("firmware_invalid"))
                     return
@@ -551,7 +571,7 @@ def build_app(api):
                     await self._disconnect()
                     self._render_status()
                     break
-                value = await api.read_rssi(self.client)
+                value = await read_rssi(self.client)
                 if value is not None:
                     self.rssi, self.rssi_ts = value, time.monotonic()
                 elif not warned:

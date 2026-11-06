@@ -125,7 +125,7 @@ class InitializationTests(unittest.IsolatedAsyncioTestCase):
     async def test_throttle_exempts_get_response_trigger(self):
         e = euicc(["9000", "9000", "9000"])
         e.delay_over_counter = 1
-        with patch("beesim.asyncio.sleep", new=AsyncMock()) as sleep:
+        with patch("beesim_euicc.asyncio.sleep", new=AsyncMock()) as sleep:
             await e.send_command(bytes.fromhex("81E2910000"))
             await e.send_command(bytes.fromhex("81C0000000"))
             await e.send_command(bytes.fromhex("81E2910000"))
@@ -347,11 +347,11 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                  SimpleNamespace(uuid="notify", properties=["notify"])]
         client = SimpleNamespace(connect=AsyncMock(), disconnect=AsyncMock(), start_notify=AsyncMock(),
                                  services=[SimpleNamespace(uuid=b.SERVICE_UUID, characteristics=chars)])
-        with patch.object(b, "BleakClient", return_value=client):
+        with patch("beesim_transport.BleakClient", return_value=client):
             _, _, e = await b.connect("test")
         self.assertEqual(e.t.write_uuid, "write-nr")
         self.assertFalse(e.t.write_with_response)
         client.services = []
-        with patch.object(b, "BleakClient", return_value=client), self.assertRaises(RuntimeError):
+        with patch("beesim_transport.BleakClient", return_value=client), self.assertRaises(RuntimeError):
             await b.connect("test")
         client.disconnect.assert_awaited_once()

@@ -1,4 +1,3 @@
-import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -23,7 +22,7 @@ class LanguageTests(unittest.TestCase):
 class TUITests(unittest.IsolatedAsyncioTestCase):
     async def test_startup_requires_language_and_does_not_scan(self):
         app = b._build_tui_app()()
-        with patch.object(b, "connect", new=AsyncMock()) as connect:
+        with patch("beesim_tui.connect", new=AsyncMock()) as connect:
             async with app.run_test(size=(110, 40)) as pilot:
                 await pilot.pause()
                 self.assertEqual(app.screen.__class__.__name__, "LanguageScreen")
@@ -93,7 +92,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         sim = SimpleNamespace(get_eid=AsyncMock(side_effect=RuntimeError("SELECT failed")))
         e = SimpleNamespace(on_log=None)
         async with app.run_test(size=(110, 40)) as pilot:
-            with patch.object(b, "connect", new=AsyncMock(return_value=(client, sim, e))):
+            with patch("beesim_tui.connect", new=AsyncMock(return_value=(client, sim, e))):
                 app.action_scan()
                 await pilot.pause()
                 await app.workers.wait_for_complete()
@@ -119,7 +118,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         sim = SimpleNamespace(get_eid=AsyncMock(return_value="1234"), get_profiles=AsyncMock(return_value=[]))
         e = SimpleNamespace(on_log=None, t=SimpleNamespace(_closed=False))
         async with app.run_test(size=(110, 40)) as pilot:
-            with patch.object(b, "connect", new=AsyncMock(return_value=(client, sim, e))):
+            with patch("beesim_tui.connect", new=AsyncMock(return_value=(client, sim, e))):
                 app.action_scan()
                 await pilot.pause()
                 self.assertIs(app.client, client)
@@ -147,7 +146,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         app.sim = SimpleNamespace(get_profiles=AsyncMock(return_value=[]))
         app.euicc = SimpleNamespace(t=SimpleNamespace(_closed=False))
         async with app.run_test(size=(110, 40)) as pilot:
-            with patch.object(b, "download_profile", new=AsyncMock()) as download:
+            with patch("beesim_tui.download_profile", new=AsyncMock()) as download:
                 app.action_download()
                 await pilot.pause()
                 app.screen.query_one(Input).value = "LPA:1$rsp.example.com$test$$1"
