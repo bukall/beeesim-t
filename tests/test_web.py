@@ -6,9 +6,11 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
-import beesim as b
 from beesim_web import WebAPI, _client_secret
 
+from beesim_download import download_profile
+from beesim_euicc import Euicc
+from beesim_tlv import tlv
 
 class WebTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -73,14 +75,14 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
 
 
 def installation_result(success=True):
-    metadata = b.tlv([0xBF, 0x2F], b.tlv(0x80, b"\x01"), b.tlv(0x0C, b"rsp.example.com"))
-    final = b.tlv(0xA0) if success else b.tlv(0xA1, b.tlv(0x81, b"\x09"))
-    return b.tlv([0xBF, 0x37], b.tlv([0xBF, 0x27], metadata, b.tlv(0xA2, final)))
+    metadata = tlv([0xBF, 0x2F], tlv(0x80, b"\x01"), tlv(0x0C, b"rsp.example.com"))
+    final = tlv(0xA0) if success else tlv(0xA1, tlv(0x81, b"\x09"))
+    return tlv([0xBF, 0x37], tlv([0xBF, 0x27], metadata, tlv(0xA2, final)))
 
 
 class DownloadTests(unittest.IsolatedAsyncioTestCase):
     def make_download(self, *, upload_error=False, success=True):
-        e = b.Euicc(SimpleNamespace(), delay_over_counter=0)
+        e = Euicc(SimpleNamespace(), delay_over_counter=0)
         e.init = AsyncMock()
         e.set_tx_power = AsyncMock()
         raw = installation_result(success)
@@ -94,7 +96,7 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
             {"transactionId": "1234", "serverSigned1": encode(b"a"), "serverSignature1": encode(b"b"),
              "euiccCiPKIdToBeUsed": encode(b"c"), "serverCertificate": encode(b"d")},
             {"smdpSigned2": encode(b"e"), "smdpSignature2": encode(b"f"), "smdpCertificate": encode(b"g"),
-             "profileMetadata": encode(b.tlv([0xBF, 0x25], b.tlv(0x5A, bytes.fromhex("9810"))))},
+             "profileMetadata": encode(tlv([0xBF, 0x25], tlv(0x5A, bytes.fromhex("9810"))))},
             {"boundProfilePackage": encode(b"package")},
             RuntimeError("offline") if upload_error else {},
         ]
@@ -103,7 +105,7 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_complete_download_includes_notification_and_power_restore(self):
         e, sim, gateway = self.make_download()
-        result = await b.download_profile(sim, e, "rsp.example.com", "matching", gateway=gateway, log=lambda _: None)
+        result = await download_profile(sim, e, "rsp.example.com", "matching", gateway=gateway, log=lambda _: None)
         self.assertEqual(result["iccid"], "8901")
         self.assertEqual([c.args[0] for c in gateway.execute.call_args_list], [
             "initiateAuthentication", "authenticateClient", "getBoundProfilePackage", "handleNotification"])
@@ -114,7 +116,7 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
     async def test_upload_failure_preserves_notification(self):
         e, sim, gateway = self.make_download(upload_error=True)
         with self.assertRaisesRegex(RuntimeError, "notification pending"):
-            await b.download_profile(sim, e, "rsp.example.com", gateway=gateway, log=lambda _: None)
+            await download_profile(sim, e, "rsp.example.com", gateway=gateway, log=lambda _: None)
         sim.remove_notification.assert_not_awaited()
         sim.load_bound_profile_package.assert_awaited_once()
         self.assertEqual(e.set_tx_power.call_args_list[-1].args, (1,))
@@ -122,6 +124,6 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
     async def test_installation_error_is_reported_and_notification_not_deleted(self):
         e, sim, gateway = self.make_download(success=False)
         with self.assertRaisesRegex(RuntimeError, "Installation failed: 09"):
-            await b.download_profile(sim, e, "rsp.example.com", gateway=gateway, log=lambda _: None)
+            await download_profile(sim, e, "rsp.example.com", gateway=gateway, log=lambda _: None)
         self.assertEqual(gateway.execute.call_args.args[0], "handleNotification")
         sim.remove_notification.assert_not_awaited()

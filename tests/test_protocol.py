@@ -4,8 +4,10 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
-import beesim as b
-
+from beesim_euicc import BeeSim, Euicc
+from beesim_protocol import SERVICE_UUID, _parse_profile, capacity_data, describe_capacity, describe_euicc_info, format_capacity_kb, parse_activation_code, parse_firmware_text
+from beesim_tlv import find_tag, parse_tlv, tlv
+from beesim_transport import BeeSimTransport, connect, read_rssi
 
 class ScriptedTransport:
     def __init__(self, responses):
@@ -21,7 +23,7 @@ class ScriptedTransport:
 
 
 def euicc(responses):
-    return b.Euicc(ScriptedTransport(responses), delay_over_counter=0)
+    return Euicc(ScriptedTransport(responses), delay_over_counter=0)
 
 
 def response_sequence(raw):
@@ -32,32 +34,32 @@ class CodecTests(unittest.TestCase):
     def test_ber_length_boundaries(self):
         for length, prefix in ((127, "907F"), (128, "908180"), (255, "9081FF"), (256, "90820100")):
             with self.subTest(length=length):
-                encoded = b.tlv(0x90, b"a" * length)
+                encoded = tlv(0x90, b"a" * length)
                 self.assertTrue(encoded.hex().upper().startswith(prefix))
-                self.assertEqual(b.parse_tlv(encoded)[0]["value"], b"a" * length)
+                self.assertEqual(parse_tlv(encoded)[0]["value"], b"a" * length)
 
     def test_malformed_tlv_rejected(self):
         for raw in ("BF", "BF3E", "9080", "908201", "900301", "A0029001"):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
-                b.parse_tlv(bytes.fromhex(raw))
+                parse_tlv(bytes.fromhex(raw))
 
     def test_partial_tlv_reports_truncated_value(self):
         with self.assertRaisesRegex(ValueError, "Truncated TLV value"):
-            b.parse_tlv(bytes.fromhex("BF3E03"))
+            parse_tlv(bytes.fromhex("BF3E03"))
 
     def test_activation_codes(self):
-        self.assertEqual(b.parse_activation_code("LPA:1$rsp.example.com$abc$$1"), ("rsp.example.com", "abc", True))
-        self.assertEqual(b.parse_activation_code("1$rsp.example.com"), ("rsp.example.com", "", False))
+        self.assertEqual(parse_activation_code("LPA:1$rsp.example.com$abc$$1"), ("rsp.example.com", "abc", True))
+        self.assertEqual(parse_activation_code("1$rsp.example.com"), ("rsp.example.com", "", False))
         with self.assertRaises(ValueError):
-            b.parse_activation_code("1$https://bad/path$abc")
+            parse_activation_code("1$https://bad/path$abc")
 
     def test_firmware_parser(self):
-        data = b.parse_firmware_text("F000FEF00001020304ABCD\nF200\n")
+        data = parse_firmware_text("F000FEF00001020304ABCD\nF200\n")
         self.assertEqual(data["crc"], "ABCD")
         self.assertEqual(len(data["rows"]), 2)
         for invalid in ("F001\nF200", "F000FEF00001020304ABCD\nF200\nF001", "XYZ"):
             with self.assertRaises(ValueError):
-                b.parse_firmware_text(invalid)
+                parse_firmware_text(invalid)
 
 
 class InitializationTests(unittest.IsolatedAsyncioTestCase):
@@ -138,7 +140,7 @@ class InitializationTests(unittest.IsolatedAsyncioTestCase):
         e = euicc(["9000"] * 4 + ["6105", "BF3E036103", "9000", "5C015A9000"])
         r = await e.store_and_read(bytes.fromhex("BF3E035C015A"))
         self.assertEqual(r, bytes.fromhex("BF3E035C015A"))
-        self.assertEqual(b.find_tag(b.parse_tlv(r), "BF3E", "5C"), b"\x5a")
+        self.assertEqual(find_tag(parse_tlv(r), "BF3E", "5C"), b"\x5a")
         reads = [x for x in e.t.commands if x[1] == 0xC0]
         self.assertEqual(len(reads), 3)
 
@@ -151,7 +153,7 @@ class InfoExplanationTests(unittest.TestCase):
                                 "freeVolatileMemory": 678},
             "uiccCapability": "AABB", "ppVersion": "0.0.1", "raw": "BF228202B4",
         }
-        text = b.describe_euicc_info(info, "zh", "EUICCInfo2")
+        text = describe_euicc_info(info, "zh", "EUICCInfo2")
         self.assertIn("EUICCInfo2 · 中文解读", text)
         for label in ("基础配置包版本", "SGP.22 规范版本", "芯片固件版本", "卡内资源",
                       "UICC 能力", "保护轮廓版本"):
@@ -161,7 +163,7 @@ class InfoExplanationTests(unittest.TestCase):
         self.assertIn("raw: 卡片返回的原始 BER-TLV", text)
 
     def test_english_explanation_and_unmapped_field(self):
-        text = b.describe_euicc_info({"svn": "2.2.2", "unknownTag": "0102"}, "en", "EUICCInfo2")
+        text = describe_euicc_info({"svn": "2.2.2", "unknownTag": "0102"}, "en", "EUICCInfo2")
         self.assertIn("explained", text)
         self.assertIn("SGP.22 specification version", text)
         self.assertIn("unmapped field", text)
@@ -170,26 +172,26 @@ class InfoExplanationTests(unittest.TestCase):
 
 class RSSITests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_backend_rssi_returns_none(self):
-        self.assertIsNone(await b.read_rssi(SimpleNamespace()))
+        self.assertIsNone(await read_rssi(SimpleNamespace()))
 
     async def test_backend_rssi_is_used_when_available(self):
-        self.assertEqual(await b.read_rssi(SimpleNamespace(get_rssi=lambda: -63)), -63)
+        self.assertEqual(await read_rssi(SimpleNamespace(get_rssi=lambda: -63)), -63)
 
         async def coroutine_rssi():
             return -70
-        self.assertEqual(await b.read_rssi(
+        self.assertEqual(await read_rssi(
             SimpleNamespace(_backend=SimpleNamespace(get_rssi=coroutine_rssi))), -70)
 
 
 class ReplayTests(unittest.IsolatedAsyncioTestCase):
     async def test_truncated_read_response_is_replayed(self):
-        full = b.tlv([0xBF, 0x2D], b.tlv(0xA0, b.tlv(0xE3, b.tlv(0x5A, bytes.fromhex("9810")))))
+        full = tlv([0xBF, 0x2D], tlv(0xA0, tlv(0xE3, tlv(0x5A, bytes.fromhex("9810")))))
         truncated = bytes.fromhex("BF2D050102")  # declares 5 value bytes, has 2
         responses = ["9000"] * 4 + [bytes([0x61, len(truncated)]),
                                     truncated + bytes.fromhex("9000"),
                                     bytes([0x61, len(full)]),
                                     full + bytes.fromhex("9000")]
-        sim = b.BeeSim(euicc(responses))
+        sim = BeeSim(euicc(responses))
         profiles = await sim.get_profiles()
         self.assertEqual(profiles[0]["iccid"], "8901")
         self.assertEqual(len([x for x in sim.e.t.commands if x[1] == 0xE2]), 2)
@@ -198,7 +200,7 @@ class ReplayTests(unittest.IsolatedAsyncioTestCase):
         truncated = bytes.fromhex("BF310301")
         responses = ["9000"] * 4 + [bytes([0x61, len(truncated)]),
                                     truncated + bytes.fromhex("9000")]
-        sim = b.BeeSim(euicc(responses))
+        sim = BeeSim(euicc(responses))
         with self.assertRaises(ValueError):
             await sim.enable_profile("8901")
         self.assertEqual(len([x for x in sim.e.t.commands if x[1] == 0xE2]), 1)
@@ -211,22 +213,22 @@ class CapacityTests(unittest.TestCase):
 
     def test_official_kb_format(self):
         # 官方 JS: (bytes / 1024).toFixed(2) + "KB"
-        self.assertEqual(b.format_capacity_kb(21217), "20.72KB")
-        self.assertEqual(b.format_capacity_kb(1024), "1.00KB")
-        self.assertEqual(b.format_capacity_kb(0), "0.00KB")
+        self.assertEqual(format_capacity_kb(21217), "20.72KB")
+        self.assertEqual(format_capacity_kb(1024), "1.00KB")
+        self.assertEqual(format_capacity_kb(0), "0.00KB")
 
     def test_profile_size_field_is_parsed(self):
-        e3 = b.tlv(0xE3, b.tlv(0x5A, bytes.fromhex("9810")),
-                   b.tlv([0x9F, 0x25], bytes.fromhex("0003E8")))
-        profile = b._parse_profile(b.parse_tlv(e3)[0])
+        e3 = tlv(0xE3, tlv(0x5A, bytes.fromhex("9810")),
+                   tlv([0x9F, 0x25], bytes.fromhex("0003E8")))
+        profile = _parse_profile(parse_tlv(e3)[0])
         self.assertEqual(profile["profileSize"], 1000)
 
     def test_capacity_without_profile_sizes(self):
-        data = b.capacity_data(self.INFO)
+        data = capacity_data(self.INFO)
         self.assertEqual(data["freeKB"], "20.72KB")
         self.assertEqual(data["freeVolatileBytes"], 5098)
         self.assertIsNone(data["totalBytesApprox"])
-        self.assertIn("无法计算", b.describe_capacity(data, "zh"))
+        self.assertIn("无法计算", describe_capacity(data, "zh"))
 
     def test_profile_sizes_sum_to_approximate_total(self):
         profiles = [
@@ -234,21 +236,21 @@ class CapacityTests(unittest.TestCase):
             {"iccid": "8902", "profileNickname": "B", "profileSize": 40960},
             {"iccid": "8903", "profileNickname": "C"},   # 卡未报告 profileSize
         ]
-        data = b.capacity_data(self.INFO, profiles)
+        data = capacity_data(self.INFO, profiles)
         self.assertEqual(data["installedBytes"], 61440)
         self.assertEqual(data["totalBytesApprox"], 61440 + 21214)
         self.assertEqual(data["profilesWithSize"], 2)
         self.assertIsNone(data["profiles"][2]["profileSize"])
         self.assertEqual(data["usedPercentApprox"], round(61440 * 100 / (61440 + 21214), 1))
-        self.assertIn("近似总容量", b.describe_capacity(data, "zh"))
-        self.assertIn("Approx. total capacity", b.describe_capacity(data, "en"))
+        self.assertIn("近似总容量", describe_capacity(data, "zh"))
+        self.assertIn("Approx. total capacity", describe_capacity(data, "en"))
 
     def test_capacity_requires_ext_card_resource(self):
         with self.assertRaisesRegex(ValueError, "extCardResource"):
-            b.capacity_data({"svn": "2.2.2"})
+            capacity_data({"svn": "2.2.2"})
 
     def test_euicc_info_explanation_shows_official_kb(self):
-        text = b.describe_euicc_info(
+        text = describe_euicc_info(
             {"extCardResource": {"freeNonVolatileMemory": 20856}}, "zh")
         self.assertIn("20.37KB", text)
 
@@ -256,14 +258,14 @@ class CapacityTests(unittest.TestCase):
 class APITests(unittest.IsolatedAsyncioTestCase):
     async def test_enable_already_enabled_is_success(self):
         raw = bytes.fromhex("BF3103800102")
-        sim = b.BeeSim(euicc(response_sequence(raw)))
+        sim = BeeSim(euicc(response_sequence(raw)))
         self.assertTrue(await sim.enable_profile("8901"))
 
     async def test_filtered_profiles_and_extended_fields(self):
-        profile = b.tlv(0xE3, b.tlv(0x5A, bytes.fromhex("9810")), b.tlv([0x9F, 0x70], b"\x01"),
-                        b.tlv(0x93, b"\x02"), b.tlv(0x94, b"icon"), b.tlv(0x99, b"\x01"))
-        raw = b.tlv([0xBF, 0x2D], b.tlv(0xA0, profile))
-        sim = b.BeeSim(euicc(response_sequence(raw)))
+        profile = tlv(0xE3, tlv(0x5A, bytes.fromhex("9810")), tlv([0x9F, 0x70], b"\x01"),
+                        tlv(0x93, b"\x02"), tlv(0x94, b"icon"), tlv(0x99, b"\x01"))
+        raw = tlv([0xBF, 0x2D], tlv(0xA0, profile))
+        sim = BeeSim(euicc(response_sequence(raw)))
         profiles = await sim.get_profiles("5C075A9F7090919295")
         self.assertEqual(profiles[0]["iccid"], "8901")
         self.assertEqual(profiles[0]["iconType"], "png")
@@ -272,26 +274,26 @@ class APITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_info_negotiates_protocol(self):
         raw = bytes.fromhex("BF20058203020300")
-        sim = b.BeeSim(euicc(response_sequence(raw)))
+        sim = BeeSim(euicc(response_sequence(raw)))
         self.assertEqual((await sim.get_euicc_info1())["svn"], "2.3.0")
         self.assertEqual(sim.protocol, "gsma/rsp/v2.3.0")
 
     async def test_confirmation_hash_uses_signed_transaction(self):
-        signed = b.tlv(0x30, b.tlv(0x80, b"\x01\x02"), b.tlv(1, b"\xff"))
-        sim = b.BeeSim(euicc([]))
+        signed = tlv(0x30, tlv(0x80, b"\x01\x02"), tlv(1, b"\xff"))
+        sim = BeeSim(euicc([]))
         with self.assertRaisesRegex(ValueError, "Confirmation"):
             await sim.prepare_download(signed, b"", b"")
         sim._read = AsyncMock(return_value=bytes.fromhex("BF2102A000"))
         await sim.prepare_download(signed, b"", b"", "1234")
         import hashlib
         expected = hashlib.sha256(hashlib.sha256(b"1234").digest() + b"\x01\x02").digest()
-        self.assertIn(b.tlv(4, expected), sim._read.call_args.args[0])
+        self.assertIn(tlv(4, expected), sim._read.call_args.args[0])
 
     async def test_notification_delivery_failure_does_not_delete(self):
-        metadata = b.tlv([0xBF, 0x2F], b.tlv(0x80, b"\x01"), b.tlv(0x0C, b"rsp.example.com"))
-        item = b.tlv(0x30, metadata)
-        raw = b.tlv([0xBF, 0x2B], b.tlv(0xA0, item))
-        sim = b.BeeSim(euicc([]))
+        metadata = tlv([0xBF, 0x2F], tlv(0x80, b"\x01"), tlv(0x0C, b"rsp.example.com"))
+        item = tlv(0x30, metadata)
+        raw = tlv([0xBF, 0x2B], tlv(0xA0, item))
+        sim = BeeSim(euicc([]))
         sim.retrieve_notification = AsyncMock(return_value=raw)
         sim.remove_notification = AsyncMock()
         gateway = SimpleNamespace(execute=AsyncMock(side_effect=RuntimeError("offline")))
@@ -305,10 +307,10 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(gateway.execute.call_args.args[3]["pendingNotification"], base64.b64encode(item).decode())
 
     async def test_send_notification_deletes_requested_sequence(self):
-        metadata = b.tlv([0xBF, 0x2F], b.tlv(0x80, b"\x09"), b.tlv(0x0C, b"rsp.example.com"))
-        item = b.tlv(0x30, metadata)
-        raw = b.tlv([0xBF, 0x2B], b.tlv(0xA0, item))
-        sim = b.BeeSim(euicc([]))
+        metadata = tlv([0xBF, 0x2F], tlv(0x80, b"\x09"), tlv(0x0C, b"rsp.example.com"))
+        item = tlv(0x30, metadata)
+        raw = tlv([0xBF, 0x2B], tlv(0xA0, item))
+        sim = BeeSim(euicc([]))
         sim.retrieve_notification = AsyncMock(return_value=raw)
         sim.remove_notification = AsyncMock()
         gateway = SimpleNamespace(execute=AsyncMock(return_value={}))
@@ -316,16 +318,16 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         sim.remove_notification.assert_awaited_once_with("01")
 
     async def test_remove_notification_not_found_result(self):
-        sim = b.BeeSim(euicc(response_sequence(bytes.fromhex("BF3003800101"))))
+        sim = BeeSim(euicc(response_sequence(bytes.fromhex("BF3003800101"))))
         with self.assertRaisesRegex(RuntimeError, "Notification not found"):
             await sim.remove_notification("01")
 
     async def test_delete_notification_is_kept_after_successful_send(self):
-        metadata = b.tlv([0xBF, 0x2F], b.tlv(0x80, b"\x01"),
-                         b.tlv(0x0C, b"rsp.example.com"), b.tlv(0x81, bytes.fromhex("0410")))
-        item = b.tlv(0x30, metadata)
-        raw = b.tlv([0xBF, 0x2B], b.tlv(0xA0, item))
-        sim = b.BeeSim(euicc([]))
+        metadata = tlv([0xBF, 0x2F], tlv(0x80, b"\x01"),
+                         tlv(0x0C, b"rsp.example.com"), tlv(0x81, bytes.fromhex("0410")))
+        item = tlv(0x30, metadata)
+        raw = tlv([0xBF, 0x2B], tlv(0xA0, item))
+        sim = BeeSim(euicc([]))
         sim.retrieve_notification = AsyncMock(return_value=raw)
         sim.remove_notification = AsyncMock()
         gateway = SimpleNamespace(execute=AsyncMock(return_value={}))
@@ -335,12 +337,12 @@ class APITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_firmware_headers_and_failure_stop(self):
         e = euicc(["10000001", "10000001", "9000"])
-        await b.BeeSim(e).download_firmware(["F001", "F200"], log=lambda _: None)
+        await BeeSim(e).download_firmware(["F001", "F200"], log=lambda _: None)
         self.assertEqual(e.t.commands[:2], [bytes.fromhex("00020001F001"), bytes.fromhex("00020002F200")])
         self.assertEqual(e.t.commands[-1], bytes.fromhex("A03F000000"))
         e = euicc(["00000000"])
         with self.assertRaises(RuntimeError):
-            await b.BeeSim(e).download_firmware(["F001"], log=lambda _: None)
+            await BeeSim(e).download_firmware(["F001"], log=lambda _: None)
         self.assertEqual(len(e.t.commands), 1)
         self.assertEqual(e.delay_over_counter, 0)
 
@@ -352,7 +354,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(response)
                 self.assertEqual(packet, bytes.fromhex("01010070000100"))
                 transport._on_notify(None, bytearray.fromhex("01019000"))
-        transport = b.BeeSimTransport(Client(), "w", "n", write_with_response=True)
+        transport = BeeSimTransport(Client(), "w", "n", write_with_response=True)
         self.assertEqual(await transport.send(bytes.fromhex("0070000100")), bytes.fromhex("9000"))
 
     async def test_fragment_reassembly_and_serialization(self):
@@ -362,13 +364,13 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 if packet[0] == packet[1]:
                     transport._on_notify(None, bytearray.fromhex("0201AABB"))
                     transport._on_notify(None, bytearray.fromhex("0202CC9000"))
-        transport = b.BeeSimTransport(Client(), "w", "n")
+        transport = BeeSimTransport(Client(), "w", "n")
         self.assertEqual(await transport.send(b"a" * 20), bytes.fromhex("AABBCC9000"))
         results = await asyncio.gather(transport.send(b"a"), transport.send(b"b"))
         self.assertEqual(results, [bytes.fromhex("AABBCC9000")] * 2)
 
     async def test_timeout_requires_fresh_session(self):
-        transport = b.BeeSimTransport(SimpleNamespace(write_gatt_char=AsyncMock()), "w", "n", timeout=0.01)
+        transport = BeeSimTransport(SimpleNamespace(write_gatt_char=AsyncMock()), "w", "n", timeout=0.01)
         with self.assertRaises(TimeoutError):
             await transport.send(b"a")
         with self.assertRaises(ConnectionError):
@@ -378,7 +380,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         class Client:
             async def write_gatt_char(client, *args, **kwargs):
                 transport._on_notify(None, bytearray.fromhex("02029000"))
-        transport = b.BeeSimTransport(Client(), "w", "n")
+        transport = BeeSimTransport(Client(), "w", "n")
         with self.assertRaisesRegex(RuntimeError, "Out-of-order"):
             await transport.send(b"a")
 
@@ -386,7 +388,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         class Client:
             async def write_gatt_char(client, *args, **kwargs):
                 transport.disconnected(client)
-        transport = b.BeeSimTransport(Client(), "w", "n")
+        transport = BeeSimTransport(Client(), "w", "n")
         with self.assertRaises(ConnectionError):
             await transport.send(b"a")
 
@@ -395,12 +397,12 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                  SimpleNamespace(uuid="write-nr", properties=["write-without-response"]),
                  SimpleNamespace(uuid="notify", properties=["notify"])]
         client = SimpleNamespace(connect=AsyncMock(), disconnect=AsyncMock(), start_notify=AsyncMock(),
-                                 services=[SimpleNamespace(uuid=b.SERVICE_UUID, characteristics=chars)])
+                                 services=[SimpleNamespace(uuid=SERVICE_UUID, characteristics=chars)])
         with patch("beesim_transport.BleakClient", return_value=client):
-            _, _, e = await b.connect("test")
+            _, _, e = await connect("test")
         self.assertEqual(e.t.write_uuid, "write-nr")
         self.assertFalse(e.t.write_with_response)
         client.services = []
         with patch("beesim_transport.BleakClient", return_value=client), self.assertRaises(RuntimeError):
-            await b.connect("test")
+            await connect("test")
         client.disconnect.assert_awaited_once()

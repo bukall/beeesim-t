@@ -3,7 +3,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-import beesim as b
+from beesim import main
 
 
 class CLITests(unittest.TestCase):
@@ -18,7 +18,7 @@ class CLITests(unittest.TestCase):
 
     def test_tui_language_both_argument_positions(self):
         for arguments in (["beesim.py"], ["beesim.py", "--lang", "zh"], ["beesim.py", "tui", "--lang", "en"]):
-            with self.subTest(arguments=arguments), patch.object(sys, "argv", arguments), patch.object(b, "run_tui") as run:
-                b.main()
+            with self.subTest(arguments=arguments), patch.object(sys, "argv", arguments), patch("beesim.run_tui") as run:
+                main()
                 expected = None if len(arguments) == 1 else arguments[-1]
                 self.assertEqual(run.call_args.args[1], expected)

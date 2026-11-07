@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """
-beeesim-t 命令行入口 + 向后兼容门面。
+beeesim-t 命令行入口（CLI）。
 
-本文件只负责两件事：
-  1. argparse 命令解析与 CLI 分发（_run / main）；
-  2. 把分层后的核心名字重新导出，兼容旧脚本与既有测试里的 `import beesim as b`。
+本文件只负责 argparse 命令解析与分发（_run / main），**不**向旧代码 re-export
+任何内部名字——请直接 import 需要的模块：
 
-新的集成代码请不要依赖这里的 re-export，改用：
-  * beesim_api.BeeSIMClient —— 高层异步客户端（推荐）
+  * beesim_api.BeeSIMClient —— 高层异步客户端（推荐给集成方）
   * beesim_tlv / beesim_protocol / beesim_transport / beesim_euicc / beesim_download
     —— 需要精细控制时的分层 API
 
@@ -19,9 +17,9 @@ beeesim-t 命令行入口 + 向后兼容门面。
     ^  beesim_euicc      APDU 会话与 ES10 命令
     ^  beesim_download   SGP.22 下载流程
     ^  beesim_api        对外高层客户端
-  beesim_tui / beesim.py 通过显式 import 使用以上各层，不再注入模块对象。
+  beesim_tui / beesim.py 通过显式 import 使用以上各层。
 
-CLI 示例见 README.md 或 `python beesim.py --help`。
+用法见 README.md 或 `python beesim.py --help`。
 """
 
 from __future__ import annotations
@@ -32,43 +30,15 @@ import json
 import sys
 from pathlib import Path
 
-# --- 兼容门面：旧代码通过 `import beesim as b` 访问的名字 -------------------
-from beesim_tlv import (
-    b2h, der_len, find_tag, h2b, parse_tlv, serialize_tlv, swap_nibbles, tlv,
-    _child, _find_one, _int_bytes, _tlv_response_complete, _tlv_to_debug,
-)
-from beesim_protocol import (
-    GROUP_PAYLOAD, ISDR_AID, LOGICAL_CHANNEL, NAME_PREFIX, SERVICE_UUID,
-    STORE_MAX_LC, _CARD_RESOURCE_LABELS, _EUICC_INFO_FIELDS,
-    _format_info_value, _bpp_to_blocks, _notification_metadata,
-    _parse_euicc_info, _parse_profile, _profile_meta, _response_error,
-    _seq_bytes, capacity_data, describe_capacity, describe_euicc_info,
-    format_capacity_kb, parse_activation_code, parse_firmware_text,
-    parse_installation_result,
-)
-from beesim_transport import BeeSimTransport, BleakClient, BleakScanner, connect, read_rssi
-from beesim_euicc import BeeSim, Euicc, _REPLAYABLE_ES10_TAGS
 from beesim_download import download_profile
+from beesim_protocol import (
+    NAME_PREFIX, capacity_data, describe_capacity, describe_euicc_info,
+    parse_activation_code, parse_firmware_text,
+)
+from beesim_tlv import b2h, h2b
+from beesim_transport import BleakScanner, connect
 
-# 明确列出兼容门面导出的名字；新代码请改用 beesim_api.BeeSIMClient。
-__all__ = [
-    "SERVICE_UUID", "NAME_PREFIX", "ISDR_AID", "STORE_MAX_LC", "GROUP_PAYLOAD",
-    "LOGICAL_CHANNEL", "h2b", "b2h", "swap_nibbles", "der_len", "tlv",
-    "parse_tlv", "find_tag", "serialize_tlv", "_find_one", "_child",
-    "_int_bytes", "_tlv_to_debug", "_tlv_response_complete",
-    "describe_euicc_info", "format_capacity_kb", "capacity_data",
-    "describe_capacity", "_format_info_value", "_EUICC_INFO_FIELDS",
-    "_CARD_RESOURCE_LABELS", "parse_activation_code", "parse_firmware_text",
-    "parse_installation_result", "_parse_profile", "_parse_euicc_info",
-    "_notification_metadata", "_profile_meta", "_response_error",
-    "_bpp_to_blocks", "_seq_bytes", "BeeSimTransport", "BleakClient",
-    "BleakScanner", "connect", "read_rssi", "Euicc", "BeeSim",
-    "_REPLAYABLE_ES10_TAGS", "download_profile", "run_tui", "main",
-    "_build_tui_app", "_run",
-]
 
-# CLI
-# --------------------------------------------------------------------------- #
 async def _run(args):
     from beesim_web import DirectRSP, WebAPI
     gateway = DirectRSP() if args.rsp_transport == "direct" else WebAPI()
@@ -175,7 +145,7 @@ async def _run(args):
 
 
 # --------------------------------------------------------------------------- #
-# Terminal UI (Textual) — merged in; imported lazily so the CLI works without it
+# Terminal UI (Textual) — imported lazily so the CLI works without it
 # --------------------------------------------------------------------------- #
 def _build_tui_app():
     """Import Textual only when requested; the TUI imports the core layers directly."""
@@ -259,4 +229,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

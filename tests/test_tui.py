@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, patch
 
 from textual.widgets import Button, DataTable, Input, Label, Static
 
-import beesim as b
 from beesim_i18n import TEXT, translate
 
+from beesim_tui import build_app
 
 class LanguageTests(unittest.TestCase):
     def test_language_catalog_is_complete_and_formats(self):
@@ -21,7 +21,7 @@ class LanguageTests(unittest.TestCase):
 
 class TUITests(unittest.IsolatedAsyncioTestCase):
     async def test_startup_requires_language_and_does_not_scan(self):
-        app = b._build_tui_app()()
+        app = build_app()()
         with patch("beesim_tui.connect", new=AsyncMock()) as connect:
             async with app.run_test(size=(110, 40)) as pilot:
                 await pilot.pause()
@@ -34,7 +34,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                 connect.assert_not_awaited()
 
     async def test_english_startup_and_language_switch(self):
-        app = b._build_tui_app()()
+        app = build_app()()
         async with app.run_test(size=(110, 40)) as pilot:
             await pilot.pause()
             await pilot.click("#lang-en")
@@ -50,7 +50,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
     async def test_settings_show_detailed_hints_in_both_languages(self):
         for language, expected in (("zh", "ISO 7816-4"), ("en", "one-byte Lc")):
             with self.subTest(language=language):
-                app = b._build_tui_app()(language=language)
+                app = build_app()(language=language)
                 async with app.run_test(size=(140, 50)) as pilot:
                     app.action_settings()
                     await pilot.pause()
@@ -60,7 +60,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue(any(expected in h for h in hints), hints)
 
     async def test_settings_validate_and_localize(self):
-        app = b._build_tui_app()(language="zh")
+        app = build_app()(language="zh")
         async with app.run_test(size=(110, 40)) as pilot:
             app.action_settings()
             await pilot.pause()
@@ -72,7 +72,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.settings["timeout"], 45)
 
     async def test_localized_profile_and_delete_cancel(self):
-        app = b._build_tui_app()(language="zh")
+        app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(delete_profile=AsyncMock())
         app._profiles = [{"iccid": "8901", "profileState": "ON", "profileNickname": "中文[昵称]", "profileClass": "operational"}]
@@ -87,7 +87,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             app.sim.delete_profile.assert_not_awaited()
 
     async def test_connection_initialization_failure_disconnects(self):
-        app = b._build_tui_app()(language="en")
+        app = build_app()(language="en")
         client = SimpleNamespace(address="test", disconnect=AsyncMock())
         sim = SimpleNamespace(get_eid=AsyncMock(side_effect=RuntimeError("SELECT failed")))
         e = SimpleNamespace(on_log=None)
@@ -102,7 +102,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_both_languages_have_confirmation_and_power_dialogs(self):
         for language, cancel in (("zh", "取消"), ("en", "Cancel")):
-            app = b._build_tui_app()(language=language)
+            app = build_app()(language=language)
             app.client = SimpleNamespace(disconnect=AsyncMock())
             app.sim = SimpleNamespace(set_tx_power=AsyncMock())
             async with app.run_test(size=(110, 40)) as pilot:
@@ -113,7 +113,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                 app.sim.set_tx_power.assert_not_awaited()
 
     async def test_connect_refresh_and_disconnect(self):
-        app = b._build_tui_app()(language="zh")
+        app = build_app()(language="zh")
         client = SimpleNamespace(address="test", disconnect=AsyncMock())
         sim = SimpleNamespace(get_eid=AsyncMock(return_value="1234"), get_profiles=AsyncMock(return_value=[]))
         e = SimpleNamespace(on_log=None, t=SimpleNamespace(_closed=False))
@@ -130,7 +130,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                 client.disconnect.assert_awaited_once()
 
     async def test_physical_disconnect_updates_ui(self):
-        app = b._build_tui_app()(language="zh")
+        app = build_app()(language="zh")
         client = SimpleNamespace(is_connected=False, disconnect=AsyncMock())
         app.client = client
         app.sim = SimpleNamespace()
@@ -141,7 +141,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(app.query_one("#btn-refresh", Button).disabled)
 
     async def test_download_requests_confirmation_code_and_route_confirmation(self):
-        app = b._build_tui_app()(language="zh")
+        app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(get_profiles=AsyncMock(return_value=[]))
         app.euicc = SimpleNamespace(t=SimpleNamespace(_closed=False))
@@ -163,7 +163,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(download.call_args.args[4], "1234")
 
     async def test_info_screen_shows_json_and_chinese_explanation(self):
-        app = b._build_tui_app()(language="zh")
+        app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(get_euicc_info2=AsyncMock(
             return_value={"svn": "2.2.2", "euiccFirmwareVer": "1.3.6", "raw": "BF22"}))
@@ -182,7 +182,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             self.assertNotEqual(app.screen.__class__.__name__, "InfoScreen")
 
     async def test_capacity_screen_shows_free_per_profile_and_approx_total(self):
-        app = b._build_tui_app()(language="zh")
+        app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(
             get_euicc_info2=AsyncMock(return_value={
