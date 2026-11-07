@@ -278,7 +278,10 @@ class BeeSim:
 
     @property
     def protocol(self):
-        return "gsma/rsp/v" + self.svn
+        # 与官方 Web JS 的 step1 保持一致：this.protocol = `gsma/rsp/${svn}`，不带 v。
+        # SGP.22 文本常写作 gsma/rsp/v<svn>，但官方网页实际发的是无 v 形式，
+        # 这里按网页对齐，避免 ES9+ 请求走与官方下载不同的服务端分支。
+        return "gsma/rsp/" + self.svn
 
     async def _read(self, command: bytes):
         async with self.e.transaction():

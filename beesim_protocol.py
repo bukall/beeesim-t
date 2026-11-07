@@ -174,7 +174,7 @@ _EUICC_INFO_FIELDS = {
         "Base eSIM Profile Package version the eUICC supports; it decides which profile format can be loaded."),
     "svn": (
         "SGP.22 规范版本", "SGP.22 specification version",
-        "卡片实现的 GSMA SGP.22 版本；程序据此协商 ES9+ 的 X-Admin-Protocol（gsma/rsp/v<svn>）。",
+        "卡片实现的 GSMA SGP.22 版本；程序据此协商 ES9+ 的 X-Admin-Protocol（gsma/rsp/<svn>）。",
         "GSMA SGP.22 version implemented by the card; the client negotiates the ES9+ X-Admin-Protocol from it."),
     "euiccFirmwareVer": (
         "芯片固件版本", "eUICC firmware version",

@@ -276,7 +276,7 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         raw = bytes.fromhex("BF20058203020300")
         sim = BeeSim(euicc(response_sequence(raw)))
         self.assertEqual((await sim.get_euicc_info1())["svn"], "2.3.0")
-        self.assertEqual(sim.protocol, "gsma/rsp/v2.3.0")
+        self.assertEqual(sim.protocol, "gsma/rsp/2.3.0")
 
     async def test_confirmation_hash_uses_signed_transaction(self):
         signed = tlv(0x30, tlv(0x80, b"\x01\x02"), tlv(1, b"\xff"))

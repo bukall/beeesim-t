@@ -274,6 +274,10 @@ challenge/info1 → `initiateAuthentication` → `AuthenticateServer` →
 `LPA:1$<smdp>$<matchingId>[$<oid>][$<ccRequired>]`。配置默认安装为**停用**，
 需要时 `enable <iccid>`。
 
+ES9+ 请求里的 `protocol` 与官方网页 JS 的 `step1` 一致：`gsma/rsp/<svn>`
+（例如 `gsma/rsp/2.2.2`，**不带** `v`）；虽然 SGP.22 文本常写 `gsma/rsp/v<svn>`，
+这里按官方网页的实际取值对齐，避免走不同的服务端分支。
+
 **Bluetooth-PIN** 只存在于固件层且处于休眠：网页代码里没有任何 VERIFY/SET/CHANGE-PIN
 APDU，`skip_pin` 开关写入后从未被读取。详见上面的安全警告。
 

@@ -15,7 +15,7 @@ from beesim_api import BeeSIMClient
 def make_client():
     ble = SimpleNamespace(address="AA:BB:CC:DD:EE:FF", disconnect=AsyncMock())
     sim = SimpleNamespace(
-        protocol="gsma/rsp/v2.2.2",
+        protocol="gsma/rsp/2.2.2",
         get_eid=AsyncMock(return_value="89049032000001000000296032006412"),
         get_profiles=AsyncMock(return_value=[
             {"iccid": "8901", "profileState": "ON", "profileNickname": "A", "profileSize": 20480},
@@ -54,7 +54,7 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertIs(opened, card)
             self.assertFalse(card.closed)
             self.assertEqual(card.address, "AA:BB:CC:DD:EE:FF")
-            self.assertEqual(card.protocol, "gsma/rsp/v2.2.2")
+            self.assertEqual(card.protocol, "gsma/rsp/2.2.2")
         self.assertTrue(card.closed)
         card._ble.disconnect.assert_awaited_once()
         await card.close()
