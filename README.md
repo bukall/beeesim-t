@@ -172,6 +172,14 @@ await card.send_notification(seq, delete_after=True)   # 默认 False = 保留
 
 发送失败时通知永远保留，重试即可，不要重复下载配置。
 
+> **例外：下载 eSIM 流程仍会自动删除安装通知。** SGP.22 §3.5 规定安装结果经
+> ES9+ `HandleNotification` 送达并获 SM-DP+ 确认后，LPA 应调用 ES10b
+> `RemoveNotificationFromList`；官方 JS 的 `step4_HandleNotification` 同样如此。
+> `download_profile` 第 8 步因此默认删除——安装结果是一次性事务凭证，不删会
+> 持续占用卡内 NV 空间、可能被重复发送，并造成卡侧与运营商侧状态不一致。
+> 这与「手动发送默认保留」并不矛盾：后者面向用户可能想留痕的通知，删除不可逆；
+> 下载通知没有留痕价值，且两端 JS/PY 行为一致。
+
 ## 与官方网页的有意差异
 
 记录在 `web-api-reference.json`：

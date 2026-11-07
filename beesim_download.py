@@ -17,6 +17,14 @@ SGP.22 eSIM 下载流程（卡侧 ES10b 与服务器侧 ES9+ 交错执行）。
 * 下载期间 TX 功率提升到 4；**无论成功或失败**都在 finally 恢复到 1
   （官方 v2.1.4 JS 只提升不恢复，这是有意的安全差异，见 web-api-reference.json）。
 * 通知发送失败时抛错且保留卡上通知，不要重复下载；刷新后重试 notification-send。
+* **第 8 步发送成功后会删除安装通知**，与官方 JS ``step4_HandleNotification`` 一致。
+  这是 SGP.22 §3.5 的标准流程：LPA 用 ES9+ ``HandleNotification`` 把安装结果
+  发给 SM-DP+，服务器确认接收后再用 ES10b ``RemoveNotificationFromList`` 删除。
+  安装结果是一次性事务凭证，不删会持续占用卡内 NV 空间、可能被重复发送，
+  并造成卡侧与运营商侧状态不一致。
+  ⚠ 这里**刻意不同于** ``BeeSim.send_notification`` 的「默认保留」：后者面向
+  用户可能想留痕的 INSTALL/ENABLE/DISABLE/DELETE 通知，删除不可逆，交由调用方
+  显式决定；下载流程的通知没有留痕价值，故默认删除。两处默认值不同不是疏忽。
 * 默认走官方 HTTPS 代理；DirectRSP 为可选直连模式。
 * 本模块只在函数内部 import beesim_web，避免离线测试被迫加载 HTTP 栈。
 """
