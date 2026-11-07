@@ -1,553 +1,278 @@
 # beeesim-t
 
-本项目基于 [cyyself/beeesim-api](https://github.com/cyyself/beeesim-api)
-二次开发，保留原作者的 Git 历史、BLE 协议逆向分析及 CLI/TUI 基础实现。
-在此基础上，API 逻辑已更新至官方 **BeeSIM Web 2.3.6**，适配目标为官方
-**1.3.6 固件**，并增加启动时选择中文或 English 的双语 TUI。
+用蓝牙管理 **BeeSIM eUICC 卡（eSIM）** 的 Python 工具 —— 命令行、中英双语终端界面、
+以及可编程调用的异步 API。配置管理完全走蓝牙；只有**下载新 eSIM** 时才需要联网
+（连运营商的 SM-DP+，默认走 BeeSIM 官方代理）。
 
-This project is based on [cyyself/beeesim-api](https://github.com/cyyself/beeesim-api).
-Credit for the original controller and reverse-engineered BLE/eUICC protocol
-goes to **cyyself**. This version updates the API implementation to official
-**BeeSIM Web 2.3.6**, targets **firmware 1.3.6**, and adds a Chinese/English TUI
-with language selection at startup.
+A Python BLE controller for **BeeSIM eUICC cards** (eSIM) — CLI, bilingual
+terminal UI, and a programmable async API. Profile management runs entirely over
+Bluetooth; downloading a new eSIM is the only thing that also talks HTTPS (to the
+operator's SM-DP+, through the official BeeSIM proxy by default).
 
-兼容性验证：46 项模拟协议、HTTP 合约和 TUI 自动化测试已在 Docker 中通过；
-真实 1.3.6 固件芯片上的连接、下载和刷写仍需人工实测。下文沿用的硬件观察、
-厂商披露及第一人称试验描述来自原作者记录，不代表本项目已重新完成这些试验。
+本项目基于 [cyyself/beeesim-api](https://github.com/cyyself/beeesim-api) 二次开发，
+保留其 BLE/eUICC 协议逆向成果与 Git 历史；实现对齐官方 **BeeSIM Web v2.3.6**，
+适配 **1.3.6 固件**。
 
-## BeeSIM BLE controller
+> ⚠️ 这张卡的 BLE 管理接口**没有任何认证**：任何在射频范围内的设备都能改写你的 eSIM。
+> 使用前请先读 [安全警告](#️-security-warning)。
 
-Pure-Bluetooth control for **BeeSIM eUICC cards**, reverse-engineered from the
-official web LPA at `https://beeesim.com/ble/` (build *"BeeSIM Web v2.3.6"*).
-Download, enable, disable, delete and rename eSIM profiles, read the EID & card
-info, manage notifications, and set the card's BLE TX power. Profile management
-is all over BLE; downloading a new profile additionally talks to the operator's
-SM-DP+ (unavoidable in GSMA RSP). Ships with a CLI and a Textual terminal UI
-(with a live signal-strength readout), a Chinese/English TUI, and the official
-Web HTTP API adapter. Downloads use the official HTTPS proxy by default;
-direct SM-DP+ access remains available with `--rsp-transport direct`.
+## Features
+
+- 配置：列出 / 启用 / 停用 / 删除 / 改名（实时 ON/OFF 状态）
+- 芯片信息（EID、EUICCInfo1/2），附中/英字段逐项解读
+- 通知：列出 / 检索 / 发送到 SM-DP+ / 删除
+- 下载 eSIM（GSMA SGP.22 完整八步），支持确认码
+- 固件：状态 / 版本列表 / 本地文本刷写（高危）
+- 容量：剩余容量（与官方网页同款换算）、逐卡 profileSize、近似总容量
+- 中英双语 TUI、CLI、以及 `beesim_api.BeeSIMClient` 编程接口
+- 通信参数可调（块长 / 超时 / 逻辑通道 / 节流）
+
+## Architecture
+
+核心按职责分层，每层只依赖下层；每个模块都有中文 docstring，说明职责、数据流、
+协议不变量，以及与官方 JS 函数的对应关系。
+
+| 模块 | 职责 |
+|---|---|
+| `beesim_tlv.py` | 字节 / BER-TLV 编解码（纯函数，无 I/O） |
+| `beesim_protocol.py` | 常量、ES10 响应解析、LPA/固件/BPP 解析、EUICCInfo 与容量说明 |
+| `beesim_transport.py` | BLE GATT 连接、18 字节分组帧、`connect()` / `read_rssi()` |
+| `beesim_euicc.py` | `Euicc`（APDU 会话）与 `BeeSim`（ES10 命令集） |
+| `beesim_download.py` | SGP.22 下载流程（ES10b + ES9+） |
+| `beesim_api.py` | **对外接口**：`BeeSIMClient` / `connect_card`（集成请从这里开始） |
+| `beesim.py` | CLI 入口（argparse + 分发） |
+| `beesim_web.py` | BeeSIM Web 2.3.6 HTTP API、签名、可选直连 RSP |
+| `beesim_tui.py`, `beesim_i18n.py` | 双语 Textual 界面与文案 |
+
+`assets/` 与 `src/` 是官方网页（v2.1.4）的历史快照，作为逆向依据保留，**不参与运行**；
+`web-api-reference.json` 记录 v2.3.6 的源哈希、接口合约与有意差异。
 
 ## Install
 
 ```bash
-python3 -m venv .venv      # Python 3.11 or newer
-source .venv/bin/activate
-pip install --only-binary=:all: -r requirements.txt
+python3 -m venv .venv          # Python 3.11+
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install --only-binary=:all: -r requirements.txt   # bleak, textual, cryptography
 ```
 
-## Quick start
+需要一台有蓝牙适配器、且系统已授权 BLE 的机器（macOS：系统设置 → 隐私与安全性
+里给终端蓝牙权限）。
+
+## Quick start (CLI)
 
 ```bash
-python beesim.py                       # launch the terminal UI (default)
-python beesim.py --lang zh             # 中文界面
-python beesim.py --lang en             # English interface
-python beesim.py list                  # CLI: list profiles as JSON
-python beesim.py enable  <iccid>       # enable a profile (then `reset`)
-python beesim.py disable <iccid>
-python beesim.py rename  <iccid> "Work SIM"
+python beesim.py                       # 启动终端界面（默认）
+python beesim.py --lang zh             # 中文界面（English: --lang en）
+python beesim.py scan                  # 列出附近的 BeeSIM* 设备
 python beesim.py eid
-python beesim.py capacity               # free capacity, per-profile size, approximate total
-python beesim.py txpower 4              # set BLE TX power (0=min .. 4=max)
-python beesim.py download "LPA:1$rsp.example.com$MATCHING-ID"   # download an eSIM
-python beesim.py --help                # full command list
+python beesim.py list [--selector 5C075A9F7090919295]
+python beesim.py enable  <iccid>       # 启用后自动软复位生效
+python beesim.py disable <iccid>
+python beesim.py delete  <iccid>       # 不可逆，务必核对 ICCID
+python beesim.py rename  <iccid> "Work SIM"
+python beesim.py capacity              # 剩余容量 / 逐卡大小 / 近似总容量
+python beesim.py info                  # EID + EUICCInfo1/2 + 中文解读
+python beesim.py notifications [--operation INSTALL|ENABLE|DISABLE|DELETE]
+python beesim.py notification-send <seq>
+python beesim.py notification-remove <seq>
+python beesim.py download "LPA:1$smdp.example.com$MATCHING-ID"
+python beesim.py txpower 4             # 0=最小 .. 4=最大
+python beesim.py --help                # 完整命令列表
 ```
+
+全局参数：`--debug`（把全部 APDU 打到 stderr）、`--address`、`--timeout`、
+`--store-max-lc`、`--channel`、`--delay-over-counter`、`--rsp-transport web|direct`。
 
 ### Terminal UI
 
-`python beesim.py` (or `python beesim.py tui`) opens the TUI:
-
-启动时先选择「中文」或「English」。按钮、快捷键说明、弹窗、操作提示和状态均随
-语言切换；ICCID、EID、APDU、协议字段和用户设置的配置名称保持原样。运行中按
-`l` 可切换语言；`--lang zh` 或 `--lang en` 可跳过启动选择。
-
-Choose Chinese or English at startup, or use `--lang zh` / `--lang en`.
-Press `l` to change language while running. No BLE operation starts before
-language selection. The UI includes communication settings, confirmation-code
-entry, notification delivery, and confirmed local firmware upgrades.
-
-- **sidebar** — connection status, **live RSSI** (BLE signal strength), EID,
-  Scan/Connect, Refresh, **Download eSIM**, Enable/Disable/Delete/Rename,
-  **TX Power**, Reset card
-- **table** — profiles with live ON/OFF state
-- **log** — actions, download progress, and APDU traffic
-- **keys** — `s` scan · `r` refresh · `o` download · `e`/`d` enable/disable ·
-  `x` delete · `n` rename · `i` info · `N` notifications · `t` TX power ·
-  `a` raw APDU · `c` disconnect · `q` quit
-
-### Web 2.3.6 compatibility
-
-The default STORE DATA block size is 120 bytes, BLE payload groups are still
-18 bytes, and APDU timeout is 30 seconds. The transport serializes requests,
-interrupts pending waits on disconnect, and supports the Web firmware's FE
-response handling. APDU operations throttle after the Web threshold of 6;
-BPP and firmware writes use 20, with 1.2-second pauses when triggered.
-
-Initialization sends CLOSE, device features, OPEN and SELECT in Web order.
-Unlike the old Python version, an OPEN response such as `6A86` does not
-immediately abort: SELECT determines whether the ISD-R is usable. Unlike the
-Web's unchecked initialization, failed SELECT is reported and never marks the
-session initialized. This compatibility change does **not** prove that every
-hardware `6A86` has been resolved. After a transport timeout, reconnect before
-sending more commands so a late reply cannot be mistaken for a new response.
-
-```bash
-python beesim.py --timeout 30 --store-max-lc 120 --channel 1 eid
-python beesim.py list --selector 5C075A9F7090919295
-python beesim.py notifications --operation INSTALL
-python beesim.py notification-get       # retrieve all, as raw TLV
-python beesim.py notification-send 01    # hexadecimal index; sends before deletion
-python beesim.py notification-remove 01  # explicitly discard one notification
-python beesim.py firmware-status
-python beesim.py firmware-versions
-python beesim.py firmware-write vendor-firmware.txt --yes
-python beesim.py firmware-write vendor-firmware.txt --resume --yes
-```
-
-The firmware text parser accepts vendor F0 rows and a final F2 row, extracts
-the embedded CRC, and checks progress before resuming. A write failure stops
-the sequence. Actual firmware flashing and BLE hardware still require manual
-device validation; automated tests use simulated cards.
-
-`beesim_web.WebAPI` exposes all seven HTTP endpoint families found in the
-public Web bundle: RSP, firmware, login, account device management, email
-verification, user profile, and logging. Public client signing constants are
-decoded with `cryptography`; user tokens remain in memory. The low-level CLI
-uses `python beesim.py web <family> <action> --data-file payload.json` and reads
-an account token from `BEESIM_TOKEN` when required. For example, read firmware
-versions with `python beesim.py web firmware get_versions --data-file payload.json`,
-where the JSON is `{"key":"BEESIM_FW_UPGRADE_NONE"}`. Do not put account or
-activation payload files in Git. Account login helpers are also available via
-`WebAPI.login(account, password=...)` or `vercode=...`.
-
-All official requests use `https://beeesim.com/fetch/...`; `action` is a query
-parameter and the body is JSON. Account-side `reset_pin` is an HTTP operation,
-not a new BLE PIN verification command. Debug logs are **not uploaded
-automatically**; `WebAPI.upload_logs` is an explicit operation.
-
-The source URLs, hashes, defaults, HTTP contracts, and intentional safety
-differences are recorded in `web-api-reference.json`. The existing `src/` and
-`assets/` folders remain historical Web captures; they are not runtime inputs.
-
-### Automated checks
-
-`Dockerfile.test` runs the simulated protocol, HTTP contract and Textual headless
-UI tests with `python -m unittest discover -s tests -v`. The tests do not need
-a BLE adapter, browser, account credentials, real eSIM profile or network API.
-
-The RSSI readout polls the **connected link** every ~2 s (via the platform
-backend — CoreBluetooth on macOS, BlueZ on Linux). BeeSIM cards stop advertising
-once connected, so a passive scanner can't see them; polling the live connection
-is what makes the reading work. Windows has no equivalent, so it shows `—` there
-(as does a dropped/stale link).
-
-> Requires a host with a working Bluetooth adapter and OS BLE permissions
-> (macOS: grant the terminal Bluetooth access in System Settings → Privacy).
-
----
-
-## ⚠️ Security warning — unauthenticated BLE profile management
-
-**This card exposes eUICC profile management over BLE with no reliable access
-control, and provides no way to switch Bluetooth off. Treat it as a serious
-attack surface.**
-
-What this project shows about the card's security posture:
-
-- The web app enforces **no PIN** on the BLE link: the `skip_pin` setting is
-  stored but never read, and no verify/set/change-PIN command exists anywhere in
-  the app (it is firmware-only, and dormant). Any BLE peer that can reach the
-  card can run the full ES10 profile API: **list, enable, disable, delete, and
-  rename profiles**, with no authentication.
-- **Confirmed on real hardware.** Against a live card, this tool connects and
-  runs the full ES10 profile API (read/enable/disable/…) with **no PIN prompt of
-  any kind** — see the empirical probe in §5. No pairing, bonding, or link
-  encryption is required to reach the eUICC.
-- There is **no physical switch** to disable the card's Bluetooth radio. If the
-  card is powered (in a phone, or a slot adapter), it is discoverable and
-  connectable, continuously.
-- **No audit trail or user notification.** Profile changes made over BLE are
-  silent — the phone/owner gets no prompt, log, or alert, so the attack leaves
-  little trace on the victim's side.
-
-### Threat model
-
-**Attacker prerequisites.** Cheap and off-the-shelf: a laptop/phone with a BLE
-radio (optionally a high-gain antenna / amplified BLE front-end to push range
-from ~10 m to **tens or hundreds of metres**), proximity to the victim once, and
-— for the full hijack — a **portable LTE/5G base station** (a rogue gNB/eNB /
-IMSI-catcher, now buildable with SDR + open-source stacks) plus a profile whose
-credentials the attacker controls (their own SM-DP+ / test operator). No secret,
-no PIN, and no pairing is needed to talk to the card.
-
-**What the attacker can do, without the owner noticing:**
-
-1. **Denial of service.** Disable or delete the victim's active eSIM → no data,
-   no calls, no SMS. This alone can defeat **SMS-based 2FA / account recovery**
-   at a chosen moment (e.g. while the attacker resets a victim's password), and
-   can knock out emergency connectivity.
-2. **Full mobile-data hijack.** Install/enable an **attacker-controlled
-   profile**, then run a rogue base station whose network that profile is
-   provisioned to trust. Because the profile carries the cellular auth keys the
-   attacker chose, the rogue base station completes **mutual authentication** —
-   the step that normally stops IMSI-catchers — and the phone attaches "legit".
-   The attacker is now an on-path **man-in-the-middle for all mobile data**.
-
-**A concrete attack chain:**
-
-```
-1. Attacker walks within BLE range of the powered card (pocket, bag, desk).
-2. Connects over BLE — no PIN, no pairing (verified: full ES10 access).
-3. Installs + enables a profile keyed to the attacker's own SM-DP+/operator.
-4. Resets the eUICC so the phone re-attaches using the new profile.
-5. Attacker's portable base station authenticates the phone and carries its data.
-6. Attacker intercepts / redirects / downgrades / blocks traffic at will.
-```
-
-**Impact once MITM is established:** interception of any non-end-to-end-encrypted
-traffic, **DNS/route manipulation**, TLS-downgrade and captive-portal style
-redirection, **interception of SMS one-time-passwords**, selective blocking,
-and **IMSI/location tracking**. The profile swap can persist across reboots
-until the owner notices missing/renamed profiles and manually restores them.
-
-The unauthenticated, always-on BLE interface is the pivot: it turns a
-rogue-base-station attack (normally defeated by mutual authentication) into a
-practical hijack — the attacker first **rewrites the SIM over Bluetooth**, then
-captures the traffic **over the air**. The two weaknesses compose.
-
-**Also at risk:** the SIM's own PIN/ADM key counters are reachable over this same
-unauthenticated link (see §5) — a malicious peer could deliberately submit wrong
-guesses to **block the SIM (PUK) or permanently block ADM keys**, a
-non-recoverable denial of service, with no authentication required.
-
-### Mitigations
-
-**For owners (do this now):**
-
-- **Turn the BLE TX power down to 0** — the single most practical step. This
-  minimises the card's radio range so an attacker has to be very close:
-
-  ```bash
-  python beesim.py txpower 0          # 0 = minimum range
-  ```
-
-  It's reversible: you can restore it to full (**4**) later either with
-  `python beesim.py txpower 4`, or **from the phone itself via the SIM Toolkit
-  (STK) menu** (*SIM Applications / SIM Toolkit → BeeSIM → set TX power*), so you
-  don't need this tool to undo it.
-- Don't leave the card powered in an untrusted RF environment; keep it in a
-  shielded/RF-blocking holder when not in use.
-
-**For the vendor (real fix):**
-
-- Enforce a mandatory PIN/authentication on the BLE link before any ES10 command
-  (wire up the PIN the firmware already has), add a Bluetooth kill-switch, and
-  use BLE bonding/encryption + pairing so arbitrary peers cannot connect.
-
-> **Caveat:** lowering TX power **reduces range, it does not add authentication.**
-> A determined attacker with a high-gain antenna / amplified receiver can still
-> reach a low-power transmitter. Treat `txpower 0` as harm-reduction until the
-> vendor ships proper access control — not as a fix.
-
-### Responsible disclosure
-
-This issue has been **reported to the vendor (BeeSIM)** by the card owner, but
-they said their hardware does not support to turn off Bluetooth. For the
-bluetooth-PIN, they said "The PIN code feature has been removed and was
-essentially useless; it caused numerous operational problems. This feature will
-not be added in future versions."
-
-For existing users, I recommend **lowering the BLE TX power to 0** (see above).
-
-## Protocol reference (reverse-engineered)
-
-Source: the official web LPA at `https://beeesim.com/ble/` — a Vue 3 SPA,
-build string **"BeeSIM Web v2.3.6"**. The protocol was recovered by
-downloading and de-minifying the JS chunks (`index`, `i18n` (contains the BLE
-core), `utils`, `pages`). The card is a **GSMA SGP.22 eUICC** (Remote SIM
-Provisioning) reachable over Bluetooth Low Energy.
-
-> **How the JS was obtained**: the CDN serves the JS assets only when the request
-> sends `Accept-Encoding: gzip` (nginx `gzip_static` — a plain request 404s).
-> `curl --compressed` (or a mobile User-Agent + Accept-Encoding) returns them.
-
----
-
-## 1. BLE transport
-
-| Item | Value |
-|------|-------|
-| Device name filter | `namePrefix: "BeeSIM"` |
-| GATT service | `0000ae30-0000-1000-8000-00805f9b34fb` (16-bit `0xAE30`) |
-| Write characteristic | the service char with `write` / `writeWithoutResponse` |
-| Notify characteristic | the service char with `notify` / `indicate` |
-
-The app does **not** hard-code the characteristic UUIDs — it selects them by
-property from the first primary service. `beesim.py` does the same.
-
-### Framing
-
-APDUs longer than one ATT packet are split into **18-byte groups**. Every packet
-(both directions) is prefixed with a 2-byte header:
-
-```
-byte0 = total number of groups
-byte1 = this group's index, 1-based
-byte2.. = up to 18 bytes of APDU
-```
-
-Reassembly: when `index == 1`, reset the buffer; append `packet[2:]`; when
-`total == index`, the APDU response is complete. The reassembled response
-**includes the trailing SW1 SW2 status word**.
-
----
-
-## 2. Command architecture
-
-The payload of each frame is an ISO-7816 APDU. Two families are used:
-
-### 2a. Vendor commands (CLA `0xA0` and misc), sent raw
-
-| Command | APDU (hex) | Meaning |
-|---------|-----------|---------|
-| Set BLE TX power | `A0 3E <pwr> 00 00` | `pwr` 0–4 (0=min, 4=max; 5–7 no effect); app uses `4` during download |
-| Reset eUICC | `A0 3F 00 00 00` | soft reset / refresh |
-| Firmware progress | `00 00 00 00 F4 01 01` | returns `10 .. crc(2) totalRows(2) currentRow(2)` |
-| Firmware row write | `00 00 00 00 F4 .. <row>` | used by the OTA updater (per-line) |
-| Device features | `80 AA 00 00 0A A9 08 81 00 82 01 01 83 01 07` | vendor GET DATA during channel open |
-
-### 2b. eUICC session (ISO-7816 + GlobalPlatform), for all ES10 commands
-
-Before any ES10 command the app opens a logical channel and selects the ISD-R:
-
-```
-00 70 80 01 00                     MANAGE CHANNEL — close channel 1
-80 AA 00 00 0A A9 08 81 00 82 01 01 83 01 07   (vendor "device features")
-00 70 00 01 00                     MANAGE CHANNEL — open  channel 1   (expect 90 00)
-01 A4 04 00 10 A0000005591010FFFFFFFF8900000100   SELECT ISD-R AID
-```
-
-ES10 command **TLVs** are then carried inside **STORE DATA** and the response is
-pulled with **GET RESPONSE**:
-
-```
-STORE DATA :  81 E2 <P1> <blk> <Lc> <data>   P1 = 0x11 (more) / 0x91 (last), blk from 0
-              default 120 data bytes per block (configurable); last block replies 61 <len>
-GET RESPONSE: 81 C0 00 00 <len>              loop while SW=61 xx; done on 90 00
-```
-
-`CLA = (channel & 0x0F) | 0x80 = 0x81` for channel 1.
-
-If any command returns SW `68 81` ("logical channel not supported"), the app
-re-opens the channel + re-selects ISD-R once and retries.
-
----
-
-## 3. ES10 API surface (all recovered)
-
-Commands are BER-TLV. ICCIDs are **nibble-swapped** on the card (JS helper `R`):
-e.g. `89014103...` is stored/sent as `98104130...`.
-
-| App function | Standard | Command TLV | Notes |
-|--------------|----------|-------------|-------|
-| `GetEID` | ES10c | `BF3E 03 5C 01 5A` | response `BF3E … 5A <eid>` |
-| `GetEUICCInfo1` | ES10b | `BF20 00` | SVN etc. |
-| `GetEUICCInfo2` | ES10b | `BF22 00` | firmware/capability info |
-| `GetEUICCChallenge` | ES10b | `BF2E 00` | download step 1 |
-| `GetProfilesInfo` | ES10c | `BF2D 00` | list all profiles (see §4) |
-| `EnableProfile` | ES10c | `BF31 {A0{5A <iccid>}} 81 01 00` | refreshFlag=0 |
-| `DisableProfile` | ES10c | `BF32 {A0{5A <iccid>}} 81 01 00` | |
-| `DeleteProfile` | ES10c | `BF33 {5A <iccid>}` | |
-| `SetNickname` | ES10c | `BF29 {5A <iccid>}{90 <utf8 name>}` | |
-| `ListNotification` | ES10b | `BF28 00` | |
-| `RetrieveNotificationsList` | ES10b | `BF2B {A0{80 <seq>}}` or `BF2B 00` | |
-| `RemoveNotificationFromList` | ES10b | `BF30 {80 <seq>}` | |
-| `AuthenticateServer` | ES10b | `BF38 <serverSigned1><serverSignature1><ciPKId><serverCert>{A0 …}` | download step 2 |
-| `PrepareDownload` | ES10b | `BF21 <smdpSigned2><smdpSignature2>[04 <hashCC>]<smdpCert>` | download step 3 |
-| `LoadBoundProfilePackage` | ES10b | BPP segmented into STORE DATA blocks | download step 4 |
-
-**Result codes** (Enable/Disable/Delete/Nickname), read from response tag `80`:
-`00`=success, `01`=iccid/profile not found, `02`=wrong state (already on/off),
-`03`=profile-policy forbids it, `04`=profile error, `05`=eUICC busy.
-
-### GetProfilesInfo response (§4)
-
-`BF2D → A0 → [E3 …]`, each `E3` (ProfileInfo):
-
-| Tag | Field | Decode |
-|-----|-------|--------|
-| `5A` | iccid | nibble-swap, strip trailing `F` |
-| `4F` | isdpAid | hex |
-| `9F70` | profileState | `01`→ON else OFF |
-| `90` | profileNickname | UTF-8 |
-| `91` | serviceProviderName | UTF-8 |
-| `92` | profileName | UTF-8 |
-| `93` | iconType | `01`→jpg else png |
-| `94` | icon | base64 |
-| `95` | profileClass | `01`=provisioning `02`=operational else test |
-
----
-
-## 4. eSIM download (LPA) flow — implemented
-
-`download_profile()` (CLI `download`, TUI *Download eSIM* / `o`) does a full GSMA
-SGP.22 download: **ES10b card commands over BLE** interleaved with **ES9+ server
-commands sent through the official Web proxy by default**. Downloading a new
-profile inherently needs that SM-DP+ dialogue — the profile lives on the server;
-the card supplies the crypto.
-
-```
-[1] ES10b GetEUICCChallenge + GetEUICCInfo1        (BLE)
-[2] ES9+  initiateAuthentication                   → SM-DP+
-[3] ES10b AuthenticateServer  (BF38)               (BLE)   ← eUICC verifies the SM-DP+ cert chain to the GSMA CI
-[4] ES9+  authenticateClient                       → SM-DP+ (returns profileMetadata)
-[5] ES10b PrepareDownload     (BF21, +hashCc if a confirmation code)   (BLE)
-[6] ES9+  getBoundProfilePackage                   → SM-DP+
-[7] ES10b LoadBoundProfilePackage: BPP split into ES8+ STORE DATA blocks (BLE)
-[8] ES9+ handleNotification, then remove the acknowledged card notification
-```
-
-Direct-mode ES9+ endpoints are `POST https://<smdp>/gsma/rsp2/es9plus/<function>` with headers
-`X-Admin-Protocol` negotiated from the card SVN and `User-Agent: gsma-rsp-lpad`. The profile
-installs **disabled**; enable it with `enable <iccid>`. Confirmation-code profiles:
-pass `--confirm-code`. Activation codes are `LPA:1$<smdp>$<matchingId>[$<oid>][$<ccRequired>]`.
-
-**In optional direct mode, TLS to the SM-DP+ is not web-PKI-verified.** The
-default official proxy uses normal verified HTTPS to BeeSIM. GSMA RSP has its own
-end-to-end mutual authentication in the *payload*: the eUICC checks the SM-DP+
-certificate chain up to the GSMA CI and every signature (a forged server fails
-step 3, AuthenticateServer), and the SM-DP+ verifies the eUICC. TLS is only
-transport confidentiality here, and SM-DP+ certs are signed by the **GSMA RSP2
-Root CI1** (the eSIM PKI root, key id `81370F…` — the same CI your card trusts),
-not a public web CA. So `beesim.py` skips the web-PKI check rather than shipping
-or downloading a CA bundle. The card is responsible for RSP payload authentication.
-
-The proxy receives the matching ID and RSP protocol data. The TUI confirms the
-selected route before installation. Failed notification delivery leaves the
-notification on the card: refresh profiles and retry `notification-send`, rather
-than repeating the profile download. TX power is raised to 4 for installation
-and restoration to 1 is attempted on both success and failure.
-
-> Verified end-to-end on real hardware: a **BetterRoaming** GSMA-test profile
-> (`LPA:1$rsp.truphone.com$QRF-BETTERROAMING-…`) downloaded and installed over BLE.
-> Public free test profiles come and go — expect server-side `matching ID refused`
-> / `campaign pool empty` on depleted ones (the download stack is fine; the pool
-> isn't). See <https://euicc-manual.osmocom.org/docs/rsp/known-test-profile/>.
-
----
-
-## 5. Bluetooth-PIN — firmware-only, not implemented here
-
-For completeness (it underpins the security warning above): the web app has
-**no working Bluetooth-PIN**. What's in the build:
-
-- **Dormant strings only** — `enter-bluetooth-pin`, `bluetooth-pin`,
-  `pin-first-tip`, `pin-remember-tip` exist in the translations but the UI never
-  shows them.
-- **`skip_pin`** — a `localStorage` toggle that is written but **never read** in
-  the JS (so it does nothing; any enforcement would be in card firmware).
-- **`reset_pin`** — a *server-side* HTTP action (`POST
-  /v1/main/user/mall.do?action=reset_pin`, body `{eid}`, needs the account
-  token), not a BLE command.
-- **No VERIFY/SET/CHANGE-PIN APDU anywhere in the JavaScript.**
-
-So there is nothing to drive over BLE, and this controller deliberately ships no
-PIN command. If you obtain the firmware's PIN opcode (via a BLE/HCI-snoop capture
-or the vendor spec), you can send it manually with `python beesim.py apdu <hex>`.
-
-### Change-PIN APDUs tried against a real card (empirical)
-
-I probed candidate verify/change-PIN commands over BLE against a live card
-(assuming the stated default PIN `0000`). Results:
-
-| Command (PIN 0000) | Response | Reading |
-|---|---|---|
-| `A0 20` / `A0 24` (vendor CLA) | `6E 00` | CLA not supported → **not a vendor command** |
-| `00 20` / `00 24`, 4-byte data | `67 00` | wrong length → wants classic **8-byte CHV** |
-| `00 20` / `00 24`, 8-byte CHV, P2=01 | `69 84` | CHV1 reference disabled/invalidated |
-| `00 20` P2-sweep, 8-byte CHV `0000` | mixed | see below |
-
-The P2 (reference) sweep showed the ISO `VERIFY` reaches the **SIM's own PIN
-layer**, not a Bluetooth device PIN: `P2=01` (CHV1) disabled (`69 84`), and
-**active PIN/ADM references at `P2=0A/0B/81`** returning `63 Cx` — these are the
-SIM's ADM/application keys, *not* the Bluetooth PIN, and `0000` is not their
-value. **No candidate returned `90 00`.**
-
-Decisive point: the full ES10 profile API (list/enable/disable/…) works over BLE
-**with no PIN prompt at all**, so no Bluetooth PIN is gating access on this card.
-The change-PIN feature is a firmware layer not reachable via standard or vendor
-APDUs — it could not be exercised, and nothing is wired in.
-
-> ⚠️ **Do not brute-force `P2=0A/0B/81`.** Those are the SIM's ADM/app keys; a
-> wrong guess decrements their retry counter and exhausting it blocks the key
-> (PUK-required, or permanent for ADM). During probing each was tried exactly
-> once and left with 2 attempts remaining — leave them alone.
-
----
-
-## 6. Python API (for other programs)
-
-`beesim_api.BeeSIMClient` is the stable entry point. It is async (bleak is
-async), returns plain dict/list/str/bool values, and closes the BLE link via an
-async context manager. Dangerous methods (delete, firmware write, power, reset)
-are documented in the source; callers must confirm them themselves.
+`python beesim.py`（或 `tui`）打开界面。启动时选择「中文 / English」；
+`--lang zh|en` 跳过选择，运行中按 `l` 切换。语言未选定前不会发起任何蓝牙操作。
+
+侧边栏是连接状态、实时 RSSI、EID 和各功能按钮；中间表格列出配置；底部日志显示
+操作、下载进度与 APDU 流量。
+
+| 快捷键 | 功能 | 快捷键 | 功能 |
+|---|---|---|---|
+| `s` | 扫描并连接 | `m` | 容量 |
+| `r` | 刷新 | `N` | 通知 |
+| `e` / `d` | 启用 / 停用 | `t` | 发射功率 |
+| `x` | 删除 | `a` | 原始 APDU |
+| `n` | 改名 | `c` | 断开 |
+| `o` | 下载 eSIM | `l` | 切换语言 |
+| `i` | 芯片信息 | `q` | 退出 |
+
+## Python API
 
 ```python
 import asyncio
 from beesim_api import connect_card
 
 async def main():
-    async with await connect_card() as card:        # scans for BeeSIM*
+    async with await connect_card() as card:        # 自动扫描 BeeSIM*
         print(await card.eid())
         for p in await card.profiles():
             print(p["iccid"], p["profileState"], p.get("profileNickname"))
-        print(await card.info_explained("zh"))      # EUICCInfo2 in Chinese
-        print(await card.capacity_explained())      # free / per-profile / approx. total
+        print(await card.info_explained("zh"))      # EUICCInfo2 中文解读
+        print(await card.capacity_explained())      # 剩余 / 逐卡 / 近似总容量
         # await card.enable("8985203120001690051")
         # await card.download("LPA:1$hthk.esimcase.com$MATCHING-ID")
+        # await card.send_notification("7A")
 
 asyncio.run(main())
 ```
 
-Use `connect_card(address="...", timeout=45, store_max_lc=120, channel=1,
-delay_over_counter=6, gateway=...)` to override defaults. After a timeout or
-disconnect, create a new client — transport sessions are not reusable.
+`connect_card(address=..., timeout=45, store_max_lc=120, channel=1,
+delay_over_counter=6, gateway=...)` 覆盖默认值。所有方法都是 async，返回普通
+dict/list/str/bool。超时或断开后必须重新 `connect_card()`，旧对象不可复用。
+会改变卡片状态的方法（`delete`、`firmware_write`、`set_tx_power`、`reset`、
+`download`）在源码里标注了危险等级，**不会**弹窗二次确认，调用方自行确认。
 
-### Remaining capacity, per-profile size, approximate total
+## Communication settings
 
-The official Web button "View Remaining Capacity" (`view-memory`) calls
-`GetEUICCInfo2()` and renders `extCardResource.freeNonVolatileMemory` as
-`(bytes / 1024).toFixed(2) + "KB"`; `capacity` / `capacity_explained` /
-`BeeSIMClient.capacity()` do exactly that (plus free volatile memory and the
-installed-application count).
+默认值取自官方 BeeSIM Web 2.3.6（`web-api-reference.json`），语义来自
+ISO 7816-4 与 GSMA SGP.22。
 
-Per-profile size — as NekokoLPA2 displays — comes from `GetProfilesInfo`: each
-`ProfileInfo` (tag `E3`) carries `profileSize` (tag `9F25`, bytes) when the
-card's `rspCapability` sets `profileSizeInProfilesInfoSupport` (bit 14). Profiles
-that do not report a size show as `not reported`.
+| 设置 | 默认 | 含义 |
+|---|---|---|
+| `store_max_lc` | 120 | 单条 STORE DATA（`81 E2`）的数据字节数；ISO 7816-4 短 APDU 的 Lc 只有 1 字节，故范围 1–255。越小分块越多、单条越短。 |
+| `timeout` | 30 秒 | 等待卡片经 BLE notify 返回 APDU 响应的最长时间。超时后传输层会使会话失效，必须重新连接再发命令。 |
+| `channel` | 1 | ISO 7816-4 补充逻辑通道（MANAGE CHANNEL，`INS=70`）；ES10 的 CLA = `0x80 \| 通道号`。Web 2.3.6 固定通道 1，仅当卡片拒绝时才试 2/3。 |
+| `delay_over_counter` | 6 | 连续发送多少条 APDU 后暂停 1.2 秒，给卡片留处理时间。`GET RESPONSE`（`0xC0`）与 `0xFE` 不计数；下载配置包/刷固件时提高到 20。0 关闭节流。 |
 
-Approximate total capacity = sum(profileSize) + free memory. ETSI TS 102 226
-§8.2.1.7.2 defines **only** free memory, so there is no authoritative total on
-the card: this figure excludes system/file-system overhead and only counts
-profiles that report a size. The program never substitutes a guessed chip
-capacity.
+## Capacity
 
-## 7. Files
+`capacity` / `capacity_explained` / `BeeSIMClient.capacity()` 做两件事：
 
-The core is layered; each layer only depends on the ones below it. Module-level
-docstrings in Chinese explain the responsibilities and protocol invariants.
+1. **剩余容量** —— 与官方网页「查看剩余可用容量」完全一致：
+   `EUICCInfo2.extCardResource.freeNonVolatileMemory` 按 `(bytes / 1024).toFixed(2) + "KB"` 显示。
+2. **逐卡近似大小** —— 来自 `GetProfilesInfo`：每个 `ProfileInfo`（tag `E3`）的
+   `profileSize`（tag `9F25`，字节），由卡片 `rspCapability` 的
+   `profileSizeInProfilesInfoSupport`（bit 14）控制。
 
-| File | What |
-|------|------|
-| `beesim_api.py` | **public API**: `BeeSIMClient` / `connect_card` (start here) |
-| `beesim_tlv.py` | byte / BER-TLV helpers (pure, no I/O) |
-| `beesim_protocol.py` | constants, ES10 response parsing, LPA/firmware/BPP parsing, EUICCInfo explanations |
-| `beesim_transport.py` | BLE GATT connection, 18-byte framing, `connect()` / `read_rssi()` |
-| `beesim_euicc.py` | `Euicc` (APDU session) and `BeeSim` (ES10 command set) |
-| `beesim_download.py` | SGP.22 download flow (ES10b + ES9+) |
-| `beesim.py` | CLI entry point + backwards-compatible re-exports (`import beesim as b`) |
-| `beesim_web.py` | Web 2.3.6 HTTP API, signing and optional direct RSP |
-| `beesim_tui.py`, `beesim_i18n.py` | bilingual Textual UI and strings (explicit layered imports, no module injection) |
-| `tests/`, `Dockerfile.test` | simulated protocol, HTTP contract, public API and headless TUI tests |
-| `web-api-reference.json` | Web 2.3.6 source hashes, endpoint contracts and intentional differences |
-| `requirements.txt` | `bleak`, `textual`, `cryptography` |
-| `assets/`, `src/` | historical Web app snapshots (not runtime inputs) |
+**近似总容量 = sum(profileSize) + 剩余容量**。ETSI TS 102 226 §8.2.1.7.2 只定义了
+空闲内存，卡上**没有**权威的总容量字段：这个数字不含系统/文件系统开销，且只统计
+报告了大小的配置。不支持 bit 14 的卡（本卡 `rspCapability` 为 `0192`）不报告大小，
+此时程序如实显示「无法计算」，**绝不**用猜测值代替。
+
+## Notifications
+
+卡片会排队通知（INSTALL / ENABLE / DISABLE / DELETE），需送达其 SM-DP+。本工具通过
+`handleNotification` 发送（默认走官方代理），**发送成功后**从卡上删除
+INSTALL/ENABLE/DISABLE 通知；而 DELETE（删除配置）通知**刻意保留**——这是与官方网页
+的有意差异，方便留痕。发送失败时通知留在卡上，稍后重试即可，不要重复下载配置。
+
+## 与官方网页的有意差异
+
+记录在 `web-api-reference.json`：
+
+- 链式 GET RESPONSE 遇到空 `90 00` 时最多重试 3 次（与官方 Web 一致），避免返回半截 TLV；
+- 只读 ES10 命令在响应 TLV 不完整时自动重读；改状态的命令绝不重放；
+- 初始化时校验 SELECT 成功才算会话可用；
+- 下载结束后无论成败都尝试把发射功率恢复到 1；
+- DELETE 通知发送后保留在卡上；
+- EnableProfile 返回 `02` 视为成功（官方 Web 报错）；
+- 诊断日志**绝不**自动上传。
+
+平台差异：Windows 无法读取**已连接**设备的 RSSI（见下）；快速重连可能报
+`WinError -2147023673`，等几秒重试即可。
+
+## ⚠️ Security warning
+
+**这张卡通过 BLE 暴露完整的 eUICC 管理接口，没有任何访问控制，也无法关闭蓝牙。**
+射频范围内的任何 BLE 设备，无需 PIN、配对或绑定，就可以：
+
+- 列出、启用、停用、删除、改名配置（完整 ES10 权限）；
+- 安装攻击者控制的配置，再用伪基站服务它 —— 把通常被「双向认证」挡下的 IMSI-catcher
+  变成对全部移动数据的中间人，**短信验证码**也一并截获；
+- 在选定时刻停用或删除你的 eSIM 作为拒绝服务（可打断短信验证码 / 账号找回）。
+
+已向厂商（BeeSIM）披露；对方回复蓝牙无法硬件关闭，且 PIN 功能「已被移除、基本没用、
+未来版本也不会加」。
+
+**现在能做的**：把发射功率降到最低。注意它只是**减小范围，不等于加了认证**——
+高增益天线仍可能够到低功率发射：
+
+```bash
+python beesim.py txpower 0
+```
+
+可随时用 `txpower 4` 或手机上的 SIM Toolkit 菜单改回。真正的修复（强制 PIN、
+硬件开关、BLE 绑定加密）只能由厂商做。
+
+## Protocol reference (reverse-engineered)
+
+来源：官方网页 LPA `https://beeesim.com/ble/`（Vue 3 SPA，构建串 *"BeeSIM Web v2.3.6"*），
+通过下载并反混淆其 JS chunk 还原。卡片是可通过蓝牙访问的 **GSMA SGP.22 eUICC**。
+逆向依据见 `src/`（v2.1.4 快照）与 `web-api-reference.json`（v2.3.6 哈希与合约）。
+
+> 取 JS 的诀窍：CDN 只在请求带 `Accept-Encoding: gzip` 时返回 JS（nginx `gzip_static`，
+> 普通请求会 404），用 `curl --compressed` 即可。
+
+**BLE 传输**
+
+| 项 | 值 |
+|---|---|
+| 设备名过滤 | `namePrefix: "BeeSIM"` |
+| GATT 服务 | `0000ae30-0000-1000-8000-00805f9b34fb`（16 位 `0xAE30`） |
+| write / notify 特征 | 按属性从服务的特征中挑选，**不**硬编码 UUID |
+
+超过单个 ATT 包的 APDU 被切成 **18 字节分组**；每个包（双向）带 2 字节头：
+`总组数, 组号(从 1 开始)`。`index == total` 时响应完整，重组结果**包含末尾的 SW1SW2**。
+
+**初始化序列**（任何 ES10 命令之前）：
+
+```
+00 70 80 01 00                      MANAGE CHANNEL — 关闭通道 1
+80 AA 00 00 0A A9 08 81 00 82 01 01 83 01 07   厂商「设备特性」
+00 70 00 01 00                      MANAGE CHANNEL — 打开通道 1
+01 A4 04 00 10 A0000005591010FFFFFFFF8900000100   SELECT ISD-R
+```
+
+**ES10 命令**以 BER-TLV 装在 STORE DATA（`81 E2`）里，响应用 GET RESPONSE（`81 C0`，
+SW 为 `61 xx` 则继续取）拉回。ICCID 在卡上是**半字节交换**存放的。
+
+| 操作 | 命令 TLV |
+|---|---|
+| GetEID | `BF3E 03 5C 01 5A` |
+| GetEUICCInfo1 / 2 | `BF20 00` / `BF22 00` |
+| GetProfilesInfo | `BF2D 00`（或 `BF2D {5C …}` 带标签列表） |
+| EnableProfile / DisableProfile | `BF31`/`BF32` `{A0{5A iccid}} 81 01 00` |
+| DeleteProfile / SetNickname | `BF33 {5A iccid}` / `BF29 {5A}{90 utf8}` |
+| ListNotification / Retrieve / Remove | `BF28 00` / `BF2B …` / `BF30 {80 seq}` |
+| AuthenticateServer / PrepareDownload | `BF38 …` / `BF21 …` |
+| LoadBoundProfilePackage | BPP 切成 STORE DATA 分块写入 |
+
+厂商命令：`A0 3E <power> 00 00`（发射功率）、`A0 3F 00 00 00`（软复位）、
+`00 00 00 00 F4 01 01`（固件进度）。
+
+**下载流程**（卡侧 ES10b 与服务器侧 ES9+ 交错）：
+challenge/info1 → `initiateAuthentication` → `AuthenticateServer` →
+`authenticateClient` → `PrepareDownload` → `getBoundProfilePackage` →
+`LoadBoundProfilePackage` → `handleNotification`。激活码形如
+`LPA:1$<smdp>$<matchingId>[$<oid>][$<ccRequired>]`。配置默认安装为**停用**，
+需要时 `enable <iccid>`。
+
+**Bluetooth-PIN** 只存在于固件层且处于休眠：网页代码里没有任何 VERIFY/SET/CHANGE-PIN
+APDU，`skip_pin` 开关写入后从未被读取。详见上面的安全警告。
+
+> 已在真机端到端验证：BetterRoaming 的 GSMA 测试配置经此工具下载并安装成功。
+> 公开免费测试配置时有时无，服务器返回 `matching ID refused` 属正常（见
+> <https://euicc-manual.osmocom.org/docs/rsp/known-test-profile/>）。
+
+## Tests
+
+```bash
+python -m unittest discover -s tests -v      # 73 项，不需要蓝牙/硬件
+```
+
+覆盖 TLV 编解码、APDU 会话、传输分帧、ES10 解析、下载流程、对外 API、HTTP 合约
+与无头 TUI。`Dockerfile.test` 在 `python:3.13-slim` 里跑同一套。
+
+静态检查：
+
+```bash
+python -m mypy --ignore-missing-imports beesim*.py   # 预期 0 错误
+python -m pyflakes beesim*.py tests/*.py             # 预期 0 告警
+```
+
+真实硬件上的连接、下载、刷写仍需在真卡上人工验证。
