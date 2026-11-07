@@ -86,6 +86,25 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.click("#cancel")
             app.sim.delete_profile.assert_not_awaited()
 
+    async def test_profile_switch_resets_euicc(self):
+        # 官方 Web 的 P()/F() 在 Enable/Disable 后复位；TUI 此前只打日志没有复位。
+        app = build_app()(language="zh")
+        app.client = SimpleNamespace(disconnect=AsyncMock())
+        app.sim = SimpleNamespace(
+            enable_profile=AsyncMock(return_value=True),
+            disable_profile=AsyncMock(return_value=True),
+            get_profiles=AsyncMock(return_value=[]),
+        )
+        app.euicc = SimpleNamespace(reset=AsyncMock(), t=SimpleNamespace(_closed=False))
+        app._profiles = [{"iccid": "8901", "profileState": "OFF",
+                          "profileNickname": "Test", "profileClass": "test"}]
+        async with app.run_test(size=(110, 40)) as pilot:
+            app.action_enable()
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            app.sim.enable_profile.assert_awaited_once_with("8901")
+            app.euicc.reset.assert_awaited_once()
+
     async def test_connection_initialization_failure_disconnects(self):
         app = build_app()(language="en")
         client = SimpleNamespace(address="test", disconnect=AsyncMock())

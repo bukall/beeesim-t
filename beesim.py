@@ -113,7 +113,9 @@ async def _run(args):
         elif args.command == "notification-get":
             print(b2h(await sim.retrieve_notification(args.seq)))
         elif args.command == "notification-send":
-            print(json.dumps(await sim.send_notification(args.seq, gateway), ensure_ascii=False, indent=2))
+            print(json.dumps(await sim.send_notification(args.seq, gateway,
+                                                        delete_after=args.delete_after),
+                             ensure_ascii=False, indent=2))
         elif args.command == "notification-remove":
             await sim.remove_notification(args.seq)
             print("OK")
@@ -191,6 +193,9 @@ def main():
     for command in ("notification-get", "notification-send", "notification-remove"):
         notification = sub.add_parser(command)
         notification.add_argument("seq", nargs="?" if command == "notification-get" else None, help="hex sequence; get without seq retrieves all")
+        if command == "notification-send":
+            notification.add_argument("--delete-after", action="store_true",
+                                      help="remove the notification after a successful send (default: keep it)")
     sub.add_parser("firmware-status")
     sub.add_parser("firmware-versions")
     firmware = sub.add_parser("firmware-write", help="write a local vendor firmware text file")

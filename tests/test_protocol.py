@@ -301,12 +301,14 @@ class APITests(unittest.IsolatedAsyncioTestCase):
             await sim.send_notification("01", gateway)
         sim.remove_notification.assert_not_awaited()
         gateway.execute.side_effect = None
-        await sim.send_notification("01", gateway)
+        await sim.send_notification("01", gateway)          # 默认保留通知
+        sim.remove_notification.assert_not_awaited()
+        await sim.send_notification("01", gateway, delete_after=True)
         sim.remove_notification.assert_awaited_once_with("01")
         import base64
         self.assertEqual(gateway.execute.call_args.args[3]["pendingNotification"], base64.b64encode(item).decode())
 
-    async def test_send_notification_deletes_requested_sequence(self):
+    async def test_send_notification_keeps_by_default_deletes_on_request(self):
         metadata = tlv([0xBF, 0x2F], tlv(0x80, b"\x09"), tlv(0x0C, b"rsp.example.com"))
         item = tlv(0x30, metadata)
         raw = tlv([0xBF, 0x2B], tlv(0xA0, item))
@@ -315,6 +317,8 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         sim.remove_notification = AsyncMock()
         gateway = SimpleNamespace(execute=AsyncMock(return_value={}))
         await sim.send_notification("01", gateway)
+        sim.remove_notification.assert_not_awaited()
+        await sim.send_notification("01", gateway, delete_after=True)
         sim.remove_notification.assert_awaited_once_with("01")
 
     async def test_remove_notification_not_found_result(self):
@@ -334,6 +338,9 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         result = await sim.send_notification("01", gateway)
         self.assertEqual(result["profileManagementOperation"], "DELETE")
         sim.remove_notification.assert_not_awaited()
+        # 显式要求删除时不分通知类型
+        await sim.send_notification("01", gateway, delete_after=True)
+        sim.remove_notification.assert_awaited_once_with("01")
 
     async def test_firmware_headers_and_failure_stop(self):
         e = euicc(["10000001", "10000001", "9000"])

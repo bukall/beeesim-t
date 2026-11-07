@@ -92,11 +92,11 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(skip["totalBytesApprox"])
         self.assertEqual(skip["profiles"], [])
 
-    async def test_enable_disable_refresh_by_default(self):
+    async def test_enable_disable_reset_by_default(self):
         card = make_client()
         self.assertTrue(await card.enable("8901"))
         card._euicc.reset.assert_awaited_once()
-        self.assertTrue(await card.disable("8901", refresh=False))
+        self.assertTrue(await card.disable("8901", reset=False))
         card._euicc.reset.assert_awaited_once()
 
     async def test_download_parses_activation_code_and_rejects_missing_confirmation(self):
@@ -115,6 +115,8 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await card.rename("8901", "work"))
         self.assertTrue(await card.remove_notification("01"))
         self.assertEqual(await card.send_notification("01"), {"index": "01"})
+        await card.send_notification("01", delete_after=True)
+        card._sim.send_notification.assert_awaited_with("01", None, delete_after=True)
         self.assertEqual(await card.raw_apdu("A03F000000"), "9000")
         self.assertFalse(card._euicc.inited)
 

@@ -350,6 +350,10 @@ def build_app():
             if self._guard() and (iccid := self._selected()):
                 async def perform():
                     await getattr(self.sim, action + "_profile")(iccid)
+                    # 官方 Web 的 P()/F() 在 Enable/Disable 后都跟一次 reset。
+                    # 此前 TUI 只打了「复位」日志却没有真正复位，这里补齐；
+                    # CLI 与 BeeSIMClient.enable/disable(reset=True) 早已如此。
+                    await self.euicc.reset()
                     self.log_line(self.tr("apply_reset"))
                     await self._load_profiles()
                 self._start(action, perform)

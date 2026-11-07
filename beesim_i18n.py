@@ -78,10 +78,8 @@ TEXT = {
     "download_ok": ("配置安装完成，通知已发送；请刷新并按需启用。", "Profile installed and notification sent. Refresh and enable it when needed."),
     "notification_seq": ("通知序号（十六进制，与列表中的 index 一致）", "Notification sequence (hexadecimal index from the list)"),
     "send_question": (
-        "发送通知 {seq} 到其 DP+ 服务器？启用/停用/安装类通知发送成功后会从卡片删除；"
-        "「删除配置」类通知会保留在卡上。",
-        "Send notification {seq} to its DP+ server? INSTALL/ENABLE/DISABLE notifications are "
-        "removed from the card afterwards; DELETE (profile removal) notifications are kept."),
+        "发送通知 {seq} 到其 DP+ 服务器？默认保留卡上的通知（不自动删除）。",
+        "Send notification {seq} to its DP+ server? The notification is kept on the card by default."),
     "no_notifications": ("没有待处理通知。", "No pending notifications."),
     "raw_apdu": ("原始 APDU（十六进制）", "Raw APDU (hexadecimal)"),
     "raw_question": ("原始指令可能修改芯片。确认发送以下 APDU？\n{apdu}", "A raw command may change the card. Send this APDU?\n{apdu}"),

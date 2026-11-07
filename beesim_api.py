@@ -256,23 +256,28 @@ class BeeSIMClient:
         return await read_rssi(self._ble)
 
     # --- 配置管理（会改变卡片状态）------------------------------------------
-    async def enable(self, iccid: str, *, refresh: bool = True) -> bool:
+    async def enable(self, iccid: str, *, reset: bool = True) -> bool:
         """启用配置。⚠ 会改变卡片状态，可能使手机短暂重新搜网。
 
-        refresh=True（默认，与 CLI 一致）在成功后发送软复位让配置生效。
+        ``reset=True``（默认）在成功后发送软复位（``A0 3F``）让配置生效——
+        官方 Web 的 ``P()`` 在 EnableProfile 后同样跟一次 reset；CLI 与 TUI
+        也走这条路径。传 ``reset=False`` 可跳过复位（例如批量操作后自行统一复位）。
         返回 True 表示成功；卡片返回「已启用」(02) 也视为成功。
         """
         self._ensure_open()
         ok = bool(await self._sim.enable_profile(iccid))
-        if ok and refresh:
+        if ok and reset:
             await self._euicc.reset()
         return ok
 
-    async def disable(self, iccid: str, *, refresh: bool = True) -> bool:
-        """停用配置。⚠ 会改变卡片状态；refresh 语义同 enable()。"""
+    async def disable(self, iccid: str, *, reset: bool = True) -> bool:
+        """停用配置。⚠ 会改变卡片状态；reset 语义同 :meth:`enable`。
+
+        官方 Web 的 ``F()`` 在 DisableProfile 后同样跟一次 reset。
+        """
         self._ensure_open()
         ok = bool(await self._sim.disable_profile(iccid))
-        if ok and refresh:
+        if ok and reset:
             await self._euicc.reset()
         return ok
 
@@ -280,7 +285,8 @@ class BeeSIMClient:
         """删除配置（不可逆）。⚠⚠ 高危：调用方必须先自行核对 ICCID。
 
         卡片要求目标处于停用状态，已启用的配置会返回 wrong-state(02)。
-        删除会产生一条 DELETE 通知；按本项目策略，该通知发送后仍保留在卡上。
+        删除会产生一条 DELETE 通知；通知的保留/删除策略见
+        :meth:`send_notification`。
         """
         self._ensure_open()
         return bool(await self._sim.delete_profile(iccid))
@@ -318,15 +324,19 @@ class BeeSIMClient:
         self._ensure_open()
         return bytes(await self._sim.retrieve_notification(seq))
 
-    async def send_notification(self, seq: str, gateway: Optional[Any] = None) -> dict:
+    async def send_notification(self, seq: str, gateway: Optional[Any] = None,
+                                *, delete_after: bool = False) -> dict:
         """把通知发送给其 SM-DP+ 服务器。⚠ 会产生真实外部 HTTPS 请求。
 
-        成功后：INSTALL/ENABLE/DISABLE 通知会从卡上删除；DELETE（删卡）通知
-        按本项目策略**保留**在卡上（与官方 Web 有意不同）。
-        发送失败时通知保留，可稍后重试，不要重复下载配置。
+        默认**保留**卡上的通知：官方 Web 在发送成功后总会删除，本项目刻意
+        不同（删除不可逆，应由调用方决定）。传 ``delete_after=True`` 可在
+        发送成功后删除该条通知，不分 INSTALL/ENABLE/DISABLE/DELETE。
+
+        发送失败时通知永远保留，重试本方法即可，不要重复下载配置。
         """
         self._ensure_open()
-        return dict(await self._sim.send_notification(seq, gateway or self._gateway))
+        return dict(await self._sim.send_notification(
+            seq, gateway or self._gateway, delete_after=delete_after))
 
     async def remove_notification(self, seq: str) -> bool:
         """直接从卡上丢弃一条通知（不发送给服务器）。⚠ 不可恢复。"""

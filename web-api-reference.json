@@ -143,7 +143,7 @@
     "No automatic upload of diagnostic logs.",
     "Direct RSP mode remains optional; default is the official Web proxy.",
     "BLE channel encoding is limited to channels 1..3.",
-    "After a successful notification send, INSTALL/ENABLE/DISABLE notifications are removed from the card, but DELETE (profile removal) notifications are kept as an audit record.",
+    "After a successful notification send the card notification is kept by default; the explicit delete_after option removes it (the Web bundle always removes it).",
     "EnableProfile result code 02 is treated as success; the Web bundle reports it as an error.",
     "Read-only ES10 commands are replayed when the card returns an incomplete chained response."
   ]

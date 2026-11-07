@@ -25,8 +25,9 @@ eUICC 会话层：Euicc（APDU / 逻辑通道）与 BeeSim（ES10 命令集）�
   最多 3 次；写命令与下载流程绝不重放，避免重复执行。
 * 节流：累计 N 条 APDU 后暂停 1.2s（GET RESPONSE 0xC0 与 0xFE 不计数）；
   下载配置包 / 刷固件时临时提高到 20。
-* 发送通知成功后，INSTALL/ENABLE/DISABLE 通知会被删除，DELETE（删卡）通知
-  保留在卡上——这是与官方 Web 有意不同的行为，见 web-api-reference.json。
+* 发送通知成功后**默认保留**卡上通知（官方 Web 总会删除）；调用方可用
+  ``delete_after=True`` 显式删除，不分通知类型——有意差异见
+  ``web-api-reference.json``。
 
 依赖：beesim_tlv、beesim_protocol、beesim_web（仅函数内延迟 import）。
 不依赖 bleak / textual / CLI / TUI，便于用模拟 transport 做单元测试。
@@ -435,7 +436,20 @@ class BeeSim:
             finally:
                 self.e.delay_over_counter = previous
 
-    async def send_notification(self, seq, gateway=None):
+    async def send_notification(self, seq, gateway=None, *, delete_after: bool = False):
+        """把指定序号的通知发送给它的 SM-DP+ 服务器。
+
+        官方 Web 的 ``M()`` 在 ``handleNotification`` 成功后总会调用
+        ``RemoveNotificationFromList(seq)``。本项目刻意改为**默认保留**卡上的
+        通知：删除不可逆，应由调用方显式决定，且保留记录便于对账。
+
+        参数
+        ----
+        delete_after
+            ``True`` 时发送成功后按调用方传入的 ``seq`` 删除该通知（与官方一致）；
+            ``False``（默认）时全部保留，不分 INSTALL/ENABLE/DISABLE/DELETE。
+            发送失败时无论取值都不删除，可稍后重试，不要重复下载配置。
+        """
         from beesim_web import WebAPI
         async with self.e.transaction():
             raw = await self.retrieve_notification(seq)
@@ -455,12 +469,9 @@ class BeeSim:
             pending = h2b(serialize_tlv(node))
             await (gateway or WebAPI()).execute("handleNotification", smdp, self.protocol,
                                                {"pendingNotification": base64.b64encode(pending).decode()})
-            # The Web bundle deletes by the sequence the caller requested, not
-            # by the index parsed out of the notification body. It also always
-            # removes the notification after a successful send. This client
-            # deliberately differs for DELETE (profile removal) notifications:
-            # those stay on the card so the owner keeps an audit record.
-            if data.get("profileManagementOperation") != "DELETE":
+            # 官方 Web 发送成功后总是删除；本项目默认保留，仅显式要求时删除，
+            # 且按调用方传入的 seq 删除（不是从通知体里解析出的 index）。
+            if delete_after:
                 await self.remove_notification(seq)
             return data
 
