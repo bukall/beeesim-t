@@ -73,7 +73,7 @@ python beesim.py rename  <iccid> "Work SIM"
 python beesim.py capacity              # 剩余容量 / 逐卡大小 / 近似总容量
 python beesim.py info                  # EID + EUICCInfo1/2 + 中文解读
 python beesim.py notifications [--operation INSTALL|ENABLE|DISABLE|DELETE]
-python beesim.py notification-send <seq>
+python beesim.py notification-send <seq> [--delete-after]   # 默认保留通知
 python beesim.py notification-remove <seq>
 python beesim.py download "LPA:1$smdp.example.com$MATCHING-ID"
 python beesim.py txpower 4             # 0=最小 .. 4=最大
@@ -114,8 +114,9 @@ async def main():
             print(p["iccid"], p["profileState"], p.get("profileNickname"))
         print(await card.info_explained("zh"))      # EUICCInfo2 中文解读
         print(await card.capacity_explained())      # 剩余 / 逐卡 / 近似总容量
-        # await card.enable("8985203120001690051")
+        # await card.enable("8985203120001690051")          # reset=True 默认复位
         # await card.download("LPA:1$hthk.esimcase.com$MATCHING-ID")
+        # await card.send_notification("7A", delete_after=True)   # 默认保留通知
         # await card.send_notification("7A")
 
 asyncio.run(main())
@@ -157,9 +158,19 @@ ISO 7816-4 与 GSMA SGP.22。
 ## Notifications
 
 卡片会排队通知（INSTALL / ENABLE / DISABLE / DELETE），需送达其 SM-DP+。本工具通过
-`handleNotification` 发送（默认走官方代理），**发送成功后**从卡上删除
-INSTALL/ENABLE/DISABLE 通知；而 DELETE（删除配置）通知**刻意保留**——这是与官方网页
-的有意差异，方便留痕。发送失败时通知留在卡上，稍后重试即可，不要重复下载配置。
+`handleNotification` 发送（默认走官方代理）。**发送成功后默认保留卡上的通知**：
+官方 Web 会立即删除，但删除不可逆，本工具把它交给调用方显式决定。
+
+需要删除时传参（不分通知类型）：
+
+```bash
+python beesim.py notification-send <seq> --delete-after
+```
+```python
+await card.send_notification(seq, delete_after=True)   # 默认 False = 保留
+```
+
+发送失败时通知永远保留，重试即可，不要重复下载配置。
 
 ## 与官方网页的有意差异
 
@@ -169,7 +180,10 @@ INSTALL/ENABLE/DISABLE 通知；而 DELETE（删除配置）通知**刻意保留
 - 只读 ES10 命令在响应 TLV 不完整时自动重读；改状态的命令绝不重放；
 - 初始化时校验 SELECT 成功才算会话可用；
 - 下载结束后无论成败都尝试把发射功率恢复到 1；
-- DELETE 通知发送后保留在卡上；
+- 发送通知成功后默认**保留**卡上通知（官方 Web 总会删除）；可用
+  `--delete-after` / `delete_after=True` 显式删除；
+- 切换卡（enable/disable）成功后复位 eUICC（与官方 Web 一致），API 可用
+  `reset=False` 跳过；
 - EnableProfile 返回 `02` 视为成功（官方 Web 报错）；
 - 诊断日志**绝不**自动上传。
 
