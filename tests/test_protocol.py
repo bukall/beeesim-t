@@ -48,10 +48,15 @@ class CodecTests(unittest.TestCase):
             parse_tlv(bytes.fromhex("BF3E03"))
 
     def test_activation_codes(self):
-        self.assertEqual(parse_activation_code("LPA:1$rsp.example.com$abc$$1"), ("rsp.example.com", "abc", True))
-        self.assertEqual(parse_activation_code("1$rsp.example.com"), ("rsp.example.com", "", False))
+        # 官方 LPA_REG：$$ 段是实际确认码值（非布尔标志），各段字符集受校验。
+        self.assertEqual(parse_activation_code("LPA:1$rsp.example.com$abc$$1"), ("rsp.example.com", "abc", "1"))
+        self.assertEqual(parse_activation_code("LPA:1$rsp.example.com$abc$$ABC-123"), ("rsp.example.com", "abc", "ABC-123"))
+        self.assertEqual(parse_activation_code("1$rsp.example.com"), ("rsp.example.com", "", ""))
+        self.assertEqual(parse_activation_code("1$rsp.example.com$match"), ("rsp.example.com", "match", ""))
         with self.assertRaises(ValueError):
             parse_activation_code("1$https://bad/path$abc")
+        with self.assertRaises(ValueError):
+            parse_activation_code("1$rsp.example.com$bad matching id")
 
     def test_firmware_parser(self):
         data = parse_firmware_text("F000FEF00001020304ABCD\nF200\n")
@@ -330,12 +335,37 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         await sim.send_notification("01", gateway)
         sim.remove_notification.assert_not_awaited()
         await sim.send_notification("01", gateway, delete_after=True)
-        sim.remove_notification.assert_awaited_once_with("01")
+        # 按通知体解析出的 index(09) 删除，而非调用方 seq(01)——对齐官方 sendAndDelNotification。
+        sim.remove_notification.assert_awaited_once_with("09")
 
     async def test_remove_notification_not_found_result(self):
         sim = BeeSim(euicc(response_sequence(bytes.fromhex("BF3003800101"))))
         with self.assertRaisesRegex(RuntimeError, "Notification not found"):
             await sim.remove_notification("01")
+
+    async def test_empty_notification_list_returns_empty(self):
+        # BF28 constructed 但无 A0（卡上无通知）→ 官方返回 []，不应报错。
+        sim = BeeSim(euicc(response_sequence(bytes.fromhex("BF2800"))))
+        self.assertEqual(await sim.list_notifications(decoded=True), [])
+
+    async def test_send_notification_rejects_none_before_external_request(self):
+        sim = BeeSim(euicc([]))
+        sim.retrieve_notification = AsyncMock()
+        gateway = SimpleNamespace(execute=AsyncMock())
+        with self.assertRaisesRegex(ValueError, "sequence required"):
+            await sim.send_notification(None, gateway, delete_after=True)
+        sim.retrieve_notification.assert_not_awaited()
+        gateway.execute.assert_not_awaited()
+
+    async def test_remove_notification_rejects_none(self):
+        sim = BeeSim(euicc([]))
+        with self.assertRaisesRegex(ValueError, "sequence required"):
+            await sim.remove_notification(None)
+
+    async def test_whitespace_selector_rejected(self):
+        sim = BeeSim(euicc([]))
+        with self.assertRaisesRegex(ValueError, "selector"):
+            await sim.get_profiles("   ")
 
     async def test_delete_notification_is_kept_after_successful_send(self):
         metadata = tlv([0xBF, 0x2F], tlv(0x80, b"\x01"),

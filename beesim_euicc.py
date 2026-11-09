@@ -333,6 +333,8 @@ class BeeSim:
         command = h2b("BF2D00")
         if selector:
             value = h2b(selector)
+            if not value:
+                raise ValueError("Profile selector must be a non-empty hex tag list or ISD-P AID")
             command = tlv([0xBF, 0x2D], value if value[0] == 0x5C else
                           tlv(0xA0, tlv(0x4F, value)) + h2b("5C075A9F7090919295"))
         r = await self._read(command)
@@ -387,7 +389,12 @@ class BeeSim:
         if not decoded:
             return raw
         nodes = parse_tlv(raw)
+        if not (nodes and nodes[0]["tag"] == "BF28"):
+            raise RuntimeError("ListNotification failed: " + b2h(raw))
         items = find_tag(nodes, "BF28", "A0")
+        if items is None:
+            # A0 是 OPTIONAL（SGP.22）；卡上无待发通知时官方返回空列表而非报错。
+            return []
         if not isinstance(items, list):
             raise RuntimeError("ListNotification failed: " + b2h(raw))
         return [_notification_metadata(n["value"]) for n in items if n["tag"] == "BF2F"]
@@ -464,6 +471,10 @@ class BeeSim:
             ``False``（默认）时全部保留，不分 INSTALL/ENABLE/DISABLE/DELETE。
             发送失败时无论取值都不删除，可稍后重试，不要重复下载配置。
         """
+        if seq is None:
+            # 必须在任何外部请求之前拒绝：retrieve_notification(None) 会取全部，
+            # 若放任 None 会静默发送第一条，且 delete_after 时发送成功后才崩溃。
+            raise ValueError("Notification sequence required")
         from beesim_web import WebAPI
         async with self.e.transaction():
             raw = await self.retrieve_notification(seq)
@@ -483,10 +494,11 @@ class BeeSim:
             pending = h2b(serialize_tlv(node))
             await (gateway or WebAPI()).execute("handleNotification", smdp, self.protocol,
                                                {"pendingNotification": base64.b64encode(pending).decode()})
-            # 官方 Web 发送成功后总是删除；本项目默认保留，仅显式要求时删除，
-            # 且按调用方传入的 seq 删除（不是从通知体里解析出的 index）。
+            # 官方 Web 发送成功后总是删除；本项目默认保留，仅显式要求时删除。
+            # 删除按通知体解析出的 index（官方 sendAndDelNotification 会把目标序号
+            # 重赋为 index），而非调用方 seq，避免卡片重新编号时删错/删不掉。
             if delete_after:
-                await self.remove_notification(seq)
+                await self.remove_notification(data.get("index") or seq)
             return data
 
     async def download_firmware(self, rows, total=None, start=1, log=print):

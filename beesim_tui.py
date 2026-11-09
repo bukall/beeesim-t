@@ -408,23 +408,23 @@ def build_app():
                 return
             def activation(code):
                 try:
-                    smdp, matching, required = parse_activation_code(code)
+                    smdp, matching, embedded_cc = parse_activation_code(code)
                 except ValueError as exc:
                     self.log_line(self.tr("failed", action=self.tr("download"), error=str(exc)))
                     return
                 def confirmation(confirmation_code):
-                    if required and not confirmation_code:
-                        self.log_line(self.tr("confirmation_required"))
-                        return
                     async def perform():
-                        await download_profile(self.sim, self.euicc, smdp, matching, confirmation_code or None,
+                        # 确认码必填与否由 PrepareDownload 判定；优先用户输入，
+                        # 其次激活码 $$ 段嵌入的确认码（已预填到表单）。
+                        await download_profile(self.sim, self.euicc, smdp, matching,
+                                                   confirmation_code or embedded_cc or None,
                                                    log=self.progress, gateway=self.gateway)
                         self.log_line(self.tr("download_ok"))
                         await self._load_profiles()
                     from beesim_web import DirectRSP
                     self.push_screen(ConfirmScreen(self.tr("direct_question" if isinstance(self.gateway, DirectRSP) else "proxy_question"), self.language),
                                      lambda yes: self._start("download", perform) if yes else None)
-                self._form("confirmation_code", confirmation, password=True)
+                self._form("confirmation_code", confirmation, value=embedded_cc, password=True)
             self._form("activation", activation)
 
         def action_info(self):

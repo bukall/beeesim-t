@@ -382,16 +382,16 @@ class BeeSIMClient:
                        log: Optional[Callable[[str], None]] = None) -> dict:
         """按 LPA 激活码下载并安装 eSIM 配置。⚠ 会写卡并产生外部 HTTPS 请求。
 
-        activation_code 形如 ``LPA:1$<smdp>$<matchingId>``；若激活码要求确认码
-        而未提供，会抛 ValueError。默认走官方代理，可传 gateway 覆盖。
+        activation_code 形如 ``LPA:1$<smdp>$<matchingId>[$$<confirmationCode>]``；
+        ``$$`` 段嵌入的确认码会被直接使用，confirm_code 参数可覆盖它。确认码是否
+        必填由 PrepareDownload（服务端签名 tag 01 === FF）判定，必填而缺失时抛
+        ValueError。默认走官方代理，可传 gateway 覆盖。
         安装期间 TX 功率临时提升到 4，成功或失败都会尝试恢复到 1。
         新配置默认处于停用状态，需要时再调用 enable()。
         """
         self._ensure_open()
-        smdp, matching_id, cc_required = parse_activation_code(activation_code)
-        if cc_required and not confirm_code:
-            raise ValueError("Confirmation code required for this activation code")
+        smdp, matching_id, embedded_cc = parse_activation_code(activation_code)
         return dict(await download_profile(
-            self._sim, self._euicc, smdp, matching_id, confirm_code,
+            self._sim, self._euicc, smdp, matching_id, confirm_code or embedded_cc or None,
             log=log or _QUIET, gateway=gateway or self._gateway,
         ))

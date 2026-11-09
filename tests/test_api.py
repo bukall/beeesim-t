@@ -99,15 +99,18 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await card.disable("8901", reset=False))
         card._euicc.reset.assert_awaited_once()
 
-    async def test_download_parses_activation_code_and_rejects_missing_confirmation(self):
+    async def test_download_parses_activation_code_and_embedded_confirmation(self):
         card = make_client()
         with patch("beesim_api.download_profile", new=AsyncMock(return_value={"iccid": "8901"})) as dl:
             result = await card.download("LPA:1$rsp.example.com$MATCH")
             self.assertEqual(result, {"iccid": "8901"})
             self.assertEqual(dl.call_args.args[2], "rsp.example.com")
             self.assertEqual(dl.call_args.args[3], "MATCH")
-        with self.assertRaisesRegex(ValueError, "Confirmation code"):
-            await card.download("1$rsp.example.com$MATCH$$1")
+            self.assertIsNone(dl.call_args.args[4])               # 无嵌入确认码
+            await card.download("1$rsp.example.com$MATCH$$ABC123")
+            self.assertEqual(dl.call_args.args[4], "ABC123")      # 使用嵌入确认码
+            await card.download("1$rsp.example.com$MATCH$$ABC123", confirm_code="9999")
+            self.assertEqual(dl.call_args.args[4], "9999")        # 显式覆盖嵌入
 
     async def test_delete_and_notification_delegation(self):
         card = make_client()

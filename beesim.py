@@ -138,10 +138,11 @@ async def _run(args):
             resp = await euicc.send_command(h2b(args.hex), reinit_on_6881=False)
             print(b2h(resp))
         elif args.command == "download":
-            smdp, matching_id, cc_req = parse_activation_code(args.code)
-            if cc_req and not args.confirm_code:
-                raise ValueError("Confirmation code required (--confirm-code)")
-            await download_profile(sim, euicc, smdp, matching_id, args.confirm_code, gateway=gateway)
+            smdp, matching_id, embedded_cc = parse_activation_code(args.code)
+            # 确认码是否必填由 PrepareDownload（服务端 tag 01 === FF）判定；
+            # 优先用显式 --confirm-code，其次用激活码 $$ 段嵌入的确认码。
+            await download_profile(sim, euicc, smdp, matching_id,
+                                   args.confirm_code or embedded_cc or None, gateway=gateway)
     finally:
         await client.disconnect()
 

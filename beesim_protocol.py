@@ -427,9 +427,14 @@ def describe_capacity(data: dict, language: str = "zh") -> str:
 
 
 def _seq_bytes(seq):
-    if isinstance(seq, int) and seq < 0:
-        raise ValueError("Invalid notification sequence")
-    value = _int_bytes(seq) if isinstance(seq, int) else h2b(seq)
+    if seq is None:
+        raise ValueError("Notification sequence required")
+    if isinstance(seq, int):
+        if seq < 0:
+            raise ValueError("Invalid notification sequence")
+        value = _int_bytes(seq)
+    else:
+        value = h2b(seq)
     if not value:
         raise ValueError("Notification sequence missing")
     return value
@@ -463,15 +468,21 @@ def parse_installation_result(raw):
         result["error"] = b2h(find_tag(data, "A2", "A1", "81") or b"") or "unknown"
     return result
 
-def parse_activation_code(code: str) -> Tuple[str, str, bool]:
-    """LPA:1$<smdp>$<matchingId>[$<oid>][$<ccRequired>] -> (smdp, matchingId, ccRequired)."""
+def parse_activation_code(code: str) -> Tuple[str, str, str]:
+    """LPA:1$<smdp>[$<matchingId>][$$<confirmationCode>] -> (smdp, matchingId, confirmationCode)。
+
+    与官方 Web v2.3.6 的 LPA_REG 一致：matchingId 在单个 `$` 后，confirmationCode 在
+    双 `$$` 后，且第三段是**实际确认码值**（不是布尔标志）。各段字符集也按官方正则
+    校验。确认码是否*必填*由 PrepareDownload 的服务端签名数据（tag 01 === FF）判定，
+    不来自激活码本身；激活码里嵌入的确认码会被预填/直接使用。
+    """
     code = code.strip()
     if code.upper().startswith("LPA:"):
         code = code[4:]
-    p = code.split("$")
-    if len(p) < 2 or len(p) > 5 or p[0] != "1" or not re.fullmatch(r"[A-Za-z0-9.-]+", p[1]):
-        raise ValueError("bad activation code; expected LPA:1$smdp$matchingId")
-    return p[1], p[2] if len(p) > 2 else "", (len(p) > 4 and p[4] == "1")
+    match = re.fullmatch(r"1\$([A-Za-z0-9\-.]+)(?:\$([A-Za-z0-9\-]+))?(?:\$\$([0-9A-Za-z\-]+))?", code)
+    if not match:
+        raise ValueError("bad activation code; expected LPA:1$smdp$matchingId[$$confirmationCode]")
+    return match.group(1), match.group(2) or "", match.group(3) or ""
 
 
 def parse_firmware_text(text):
