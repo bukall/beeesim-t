@@ -1,0 +1,2826 @@
+import {
+  i as e
+} from "./rolldown-runtime-BE_SCnlJ.js";
+import {
+  tt as t
+} from "./vue-BJsy3Kia.js";
+import {
+  a as n,
+  c as r,
+  i,
+  l as a,
+  o,
+  r as s,
+  t as c,
+  u as l
+} from "./i18n-Dh6Egl1f.js";
+import {
+  l as u,
+  u as d
+} from "./libs-D6duEWS3.js";
+var f = class {
+  index;
+  fields;
+  constructor(e) {
+    this.fields = e, this.index = 0
+  }
+  resetIndex() {
+    this.index = 0
+  }
+  next(e, t) {
+    if (this.index < this.fields.length) {
+      let n = this.fields[this.index];
+      y(e, n, t) && this.index++
+    }
+  }
+};
+
+function p(e, t) {
+  if (t >= e.byteLength) throw Error(`Invalid TLV tag, no content`);
+  let n = t,
+    r = (e[t] & 32) != 0;
+  if ((e[n++] & 31) == 31) {
+    let i = 0;
+    for (; n < e.byteLength && e[n++] & 128;)
+      if (++i > 127) throw Error(`Invalid TLV tag, tag length exceeds the limit`);
+    return {
+      tag: k(e, t, n, ``),
+      constructed: r,
+      start: t,
+      end: n
+    }
+  }
+  return {
+    tag: O(e[t]),
+    constructed: r,
+    start: t,
+    end: n
+  }
+}
+
+function m(e, t) {
+  if (t >= e.byteLength) throw Error(`Invalid TLV length, no content`);
+  let n = t;
+  if (!(e[n++] & 128)) return {
+    length: e[t],
+    start: t,
+    end: n
+  };
+  let r = e[t] & 127;
+  if (r === 0) throw Error(`Not supported uncertain length TLV`);
+  if (t + r > e.byteLength) throw Error(`Exceeding TLV length`);
+  let i = e[n++];
+  for (let t = 1; t < r; t++) i = i << 8 | e[n++];
+  return {
+    length: i,
+    start: t,
+    end: n
+  }
+}
+
+function h(e) {
+  let t = e.toString(16);
+  return t.length % 2 != 0 && (t = `0` + t), e > 127 ? ((128 | t.length >> 1).toString(16) + t).toUpperCase() : t
+    .toUpperCase()
+}
+
+function g(e, t, n) {
+  t ??= 0, n ??= e.byteLength, n > e.byteLength && (n = e.byteLength);
+  let r = [];
+  for (; t < n;) {
+    let n = p(e, t);
+    t = n.end;
+    let i = m(e, t);
+    t = i.end + i.length;
+    let a = n.constructed ? g(e, i.end, t) : k(e, i.end, t, ``);
+    r.push({
+      tag: n.tag,
+      length: i.length,
+      value: a
+    })
+  }
+  return r
+}
+
+function _(e, t, n = 0) {
+  let r = [],
+    i;
+  for (let a = n; a < e.length; a++) {
+    if (i = e[a], i.tag === t) return i;
+    Array.isArray(i.value) && r.push(i)
+  }
+  if (r.length > 0) {
+    for (let e of r)
+      if (i = _(e.value, t), i) break
+  }
+  return i
+}
+
+function ee(e, ...t) {
+  if (t.length === 0) return;
+  let n;
+  for (let r of t) {
+    if (!e || e.length === 0) return;
+    if (n = _(e, r), n) e = Array.isArray(n.value) ? n.value : void 0;
+    else return
+  }
+  return n
+}
+
+function v(e, ...t) {
+  let n;
+  for (let r of t) {
+    if (n = _(e, r), n) {
+      Array.isArray(n.value) && (e = n.value);
+      continue
+    }
+    return
+  }
+  return n ? n.value : void 0
+}
+
+function y(e, t, r) {
+  if (t.formatTLVs) {
+    if (Array.isArray(e.value)) return n(r[t.key]) && (r[t.key] = t.formatTLVs(e.value)), !0
+  } else if (t.formatTLV) return n(r[t.key]) && (r[t.key] = t.formatTLV(e)), !0;
+  else if (t.formatter) {
+    if (typeof e.value == `string`) return n(r[t.key]) && (r[t.key] = t.formatter(e.value)), !0
+  } else return Array.isArray(e.value) ? n(r[t.key]) && (r[t.key] = S(e)) : n(r[t.key]) && (r[t.key] = e.value), !0;
+  return !1
+}
+
+function b(e, t, n) {
+  n ||= {};
+  for (let r of e) x(r, t, n);
+  return n
+}
+
+function x(e, t, n) {
+  n ||= {};
+  let r = t[e.tag];
+  if (r) {
+    if (r instanceof f) r.next(e, n);
+    else if (!y(e, r, n) && Array.isArray(e.value)) return b(e.value, t, n)
+  } else if (Array.isArray(e.value)) return b(e.value, t, n);
+  return n
+}
+
+function S(e) {
+  if (typeof e.value == `string`) return e.tag + h(e.length) + e.value;
+  let t = e.tag + h(e.length);
+  for (let n of e.value) t += S(n);
+  return t
+}
+
+function C(e) {
+  return A(S(e))
+}
+
+function w(e) {
+  return `v` + A(e).join(`.`)
+}
+var te = {
+    toUTF8Bytes(e) {
+      let t = [];
+      for (let n = 0; n < e.length;) {
+        let r = e.codePointAt(n) || 0,
+          i = 0,
+          a = 0;
+        for (r <= 127 ? i = 0 : r <= 2047 ? (a = 6, i = 192) : r <= 65535 ? (a = 12, i = 224) : r <= 2097151 && (a = 18,
+            i = 240), t.push(i | r >>> a), a -= 6; a >= 0;) t.push(128 | r >>> a & 63), a -= 6;
+        n += r >= 65536 ? 2 : 1
+      }
+      return new Uint8Array(t)
+    },
+    encode(e, t = `UTF-8`) {
+      if (e) {
+        if (t.toUpperCase() === `UTF-8`) return te.toUTF8Bytes(e);
+        throw Error(`Only UTF-8 is supported!`)
+      } else return new Uint8Array
+    }
+  },
+  ne = te;
+const re = `0123456789ABCDEF`,
+  T = {
+    0: 0,
+    1: 1,
+    2: 2,
+    3: 3,
+    4: 4,
+    5: 5,
+    6: 6,
+    7: 7,
+    8: 8,
+    9: 9,
+    A: 10,
+    B: 11,
+    C: 12,
+    D: 13,
+    E: 14,
+    F: 15
+  },
+  E = (function() {
+    let e = Array(256);
+    for (let t = 0; t < 256; t++) e[t] = re[t >>> 4 & 15] + re[t & 15];
+    return e
+  })();
+
+function D(e) {
+  e.length % 2 != 0 && (e += `F`);
+  let t = ``;
+  for (let n = 0; n < e.length; n += 2) t += e.charAt(n + 1) + e.charAt(n);
+  return t
+}
+
+function O(e) {
+  return E[e]
+}
+
+function k(e, t, n, r) {
+  if (o(t)) t = 0, n = e.byteLength, r = ` `;
+  else if (typeof t == `string`) r = t, t = 0, n = e.length;
+  else if (typeof t == `number`)
+    if (typeof n == `number`) n > e.byteLength && (n = e.byteLength), o(r) && (r = ` `);
+    else if (typeof n == `string`) r = n, n = Math.min(t, e.byteLength), t = 0;
+  else throw Error(`Invalid param for bytes2Hex`);
+  else throw Error(`Invalid param for bytes2Hex`);
+  let i = [];
+  for (let r = t; r < n; r++) i.push(E[e[r]]);
+  return i.join(r)
+}
+
+function ie(e) {
+  return ne.encode(e)
+}
+
+function A(e) {
+  e = e.toUpperCase();
+  let t = e.length >>> 1,
+    n = new Uint8Array(t);
+  for (let r = 0, i = 0; r < t; r++) n[r] = T[e.charAt(i++)] << 4 | T[e.charAt(i++)];
+  return n
+}
+
+function j(e, ...t) {
+  let n;
+  if (t.length === 1) n = t[0];
+  else {
+    let e = 0;
+    n = new Uint8Array(t.reduce((e, t) => e + t.byteLength, 0));
+    for (let r of t) n.set(r, e), e += r.byteLength
+  }
+  typeof e == `number` && (e = [e]), e.push(...A(h(n.byteLength)));
+  let r = new Uint8Array(e.length + n.byteLength);
+  return r.set(e, 0), r.set(n, e.length), r
+}
+
+function M(e, t = 2) {
+  let n = e.toString(16);
+  if (t <<= 1, n.length === t) return n;
+  if (n.length > t) return n.length % 2 == 0 ? n : `0` + n;
+  {
+    let e = t - n.length;
+    for (let t = 0; t < e; t++) n = `0` + n;
+    return n
+  }
+}
+
+function N(e, t, n) {
+  (o(t) || t < 0) && (t = 0), (o(n) || n > e.byteLength) && (n = e.byteLength), n - t > 4 && (n = t + 4);
+  let r = 0,
+    i = 8 * (n - t - 1);
+  for (let a = t; a < n; a++) r = i > 0 ? (e[a] & 255) << i | r : e[a] & 255 | r, i -= 8;
+  return r
+}
+var P = e(d(), 1),
+  F = {
+    KEY: P.default.enc.Utf8.parse(`22f313619b7d6b80`),
+    IV: P.default.enc.Utf8.parse(`fc8124a9d2cb6eb4`)
+  },
+  I = {
+    BASE64: {
+      encrypt(e, t = `HEX`) {
+        if (typeof e == `string`) {
+          let n = t === `HEX` ? P.default.enc.Hex.parse(e) : P.default.enc.Utf8.parse(e);
+          return P.default.enc.Base64.stringify(n)
+        }
+        return P.default.enc.Base64.stringify(P.default.lib.WordArray.create(e))
+      },
+      decrypt(e, t = `HEX`) {
+        return e = e.replace(/\n/g, ``), t === `HEX` ? P.default.enc.Base64.parse(e).toString(P.default.enc.Hex) : P
+          .default.enc.Base64.parse(e).toString(P.default.enc.Utf8)
+      },
+      decryptAsBytes(e) {
+        return A(this.decrypt(e))
+      }
+    },
+    SHA256: {
+      hex(e) {
+        return typeof e == `string` ? P.default.SHA256(e).toString(P.default.enc.Hex) : P.default.SHA256(P.default.lib
+          .WordArray.create(e)).toString(P.default.enc.Hex)
+      },
+      digest(e) {
+        return A(typeof e == `string` ? this.hex(e) : P.default.SHA256(P.default.lib.WordArray.create(e)).toString(P
+          .default.enc.Hex))
+      }
+    },
+    MD5(e) {
+      return P.default.MD5(e).toString()
+    },
+    AES: {
+      encrypt(e) {
+        return P.default.AES.encrypt(P.default.enc.Utf8.parse(e), F.KEY, {
+          iv: F.IV,
+          mode: P.default.mode.CBC,
+          padding: P.default.pad.Pkcs7
+        }).toString()
+      },
+      decrypt(e) {
+        return P.default.enc.Utf8.stringify(P.default.AES.decrypt(e, F.KEY, {
+          iv: F.IV,
+          mode: P.default.mode.CBC,
+          padding: P.default.pad.Pkcs7
+        }))
+      }
+    }
+  },
+  L = new class {
+    events;
+    constructor() {
+      this.events = {}
+    }
+    on(e, t, n) {
+      return this.events[e] || (this.events[e] = {}), this.events[e][t] = n, this
+    }
+    off(e, t) {
+      return t ? this.events[e] && delete this.events[e][t] : this.events[e] = {}, this
+    }
+    check(e) {
+      if (e.includes(`,`)) {
+        let t = 0,
+          n = e.split(`,`);
+        for (let e of n) this.events.checker?.[e]?.() || t++;
+        return t === 0
+      } else return this.events.checker?.[e]?.()
+    }
+  };
+
+function ae(e) {
+  let t = l(e.params),
+    r = {
+      method: e.method || `GET`,
+      url: `/fetch${e.url}${t?`?`+t:``}`
+    },
+    i = JSON.stringify(e.data);
+  return n(i) || (r.body = i, e.headers ? e.headers.append(`Content-Type`, `application/json;charset=UTF-8`) : e
+    .headers = new Headers({
+      "Content-Type": `application/json;charset=UTF-8`
+    })), r.headers = e.headers, r
+}
+
+function R(e) {
+  return new Promise((t, n) => {
+    let r = ae(e);
+    fetch(r.url, r).then(e => {
+      e.ok ? e.json().then(e => {
+        e.status === 401 && L.events.global?.unauthorized?.(), t(e)
+      }).catch(e => n({
+        status: 500,
+        message: e.message
+      })) : n({
+        status: e.status,
+        message: e.statusText
+      })
+    }).catch(e => {
+      n({
+        status: 502,
+        message: e.message
+      })
+    })
+  })
+}
+var z = new class {
+  get(e, t) {
+    return localStorage.getItem(e) || t
+  }
+  getArray(e, t) {
+    let n = this.get(e);
+    if (n) try {
+      return JSON.parse(n)
+    } catch (e) {
+      console.error(e.message)
+    }
+    return t
+  }
+  getObject(e, t) {
+    let n = this.get(e);
+    if (n) try {
+      return JSON.parse(n)
+    } catch (e) {
+      console.error(e.message)
+    }
+    return t
+  }
+  getValue(e, t, n) {
+    let r = this.getObject(e, {})[t];
+    return typeof r == `boolean` ? r : r || n
+  }
+  set(e, t) {
+    localStorage.setItem(e, t)
+  }
+  setArray(e, t) {
+    this.set(e, JSON.stringify(t))
+  }
+  setObject(e, t) {
+    this.set(e, JSON.stringify(t))
+  }
+  setValue(e, t, n) {
+    let r = this.getObject(e, {});
+    r[t] !== n && (r[t] = n, this.setObject(e, r))
+  }
+  remove(e) {
+    localStorage.removeItem(e)
+  }
+};
+const oe = {
+    left: [`translate-x-full`, `-translate-x-full`],
+    right: [`-translate-x-full`, `translate-x-full`]
+  },
+  se = {
+    static: `https://beeesim.com/static`
+  },
+  ce = {
+    email: /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+  },
+  le = {
+    account: [{
+      required: !0,
+      message: () => c().global.t(`rules.type-in-account`)
+    }, {
+      regexp: ce.email,
+      message: () => c().global.t(`rules.error-email-format`)
+    }],
+    password: [{
+      required: !0,
+      message: () => c().global.t(`rules.type-in-password`)
+    }, {
+      regexp: /^[a-zA-Z0-9!@#$%^&*()_+\-?{}\[\]]+$/,
+      message: () => c().global.t(`rules.error-password-format`)
+    }, {
+      regexp: /^.{6,18}$/,
+      message: () => c().global.t(`rules.error-password-length`)
+    }],
+    email: [{
+      required: !0,
+      message: () => c().global.t(`rules.type-in-email`)
+    }, {
+      regexp: ce.email,
+      message: () => c().global.t(`rules.error-email-format`)
+    }],
+    imgCode: [{
+      required: !0,
+      message: () => c().global.t(`rules.type-in-vercode`)
+    }, {
+      regexp: /^[0-9a-z]{4}$/,
+      message: () => c().global.t(`rules.error-vercode-format`)
+    }],
+    smdpAddress: [{
+      required: !0,
+      message: () => c().global.t(`rules.type-in-smdp-address`)
+    }, {
+      regexp: /^([a-zA-Z0-9-.]+)+(\.[a-zA-Z]+){1}$/,
+      message: () => c().global.t(`rules.error-smdp-address-format`)
+    }],
+    matchingId: [{
+      required: !0,
+      message: () => c().global.t(`rules.type-in-matching-id`)
+    }, {
+      regexp: /^[A-Z0-9-]+$/,
+      message: () => c().global.t(`rules.error-matching-id-format`)
+    }],
+    confirmationCode: [{
+      required: !0,
+      message: () => c().global.t(`rules.type-in-confirm-code`)
+    }, {
+      regexp: /^[a-zA-Z0-9]+$/,
+      message: () => c().global.t(`rules.error-confirm-code-format`)
+    }]
+  },
+  B = {
+    version: `BeeSIM Web v2.3.6`,
+    secret: {
+      BeeSIM: I.AES.decrypt(`wIGnQfM3wcSvr6iROzD4yCrsZ+4tvNewXoQuezs08CY=`),
+      Mall: I.AES.decrypt(`W4Vj8VJr4l3u8foMr+Llmft+OYhYSjMJM+JEXa5Qb24=`)
+    }
+  };
+
+function V(e) {
+  e.type = e.type || `info`, e.duration = o(e.duration) ? 2e3 : e.duration, L.events.toast?.show?.(e)
+}
+
+function ue() {
+  L.events.toast?.hide?.()
+}
+async function H(e) {
+  n(e) && (e = c().global.t(`loading.default`)), L.events.toast?.show?.({
+    message: e,
+    type: `loading`,
+    duration: 0
+  })
+}
+const U = ue;
+
+function de(e) {
+  L.events.notify?.show?.(e)
+}
+async function W(e) {
+  return new Promise((t, n) => {
+    let r = e.success,
+      i = e.fail,
+      a = c().global.t;
+    o(e.center) && (e.center = !0), e.title = e.title || a(`modal.hint`), e.cancelText = e.cancelText || a(
+      `btn.cancel`), e.confirmText = e.confirmText || a(`btn.confirm`), e.success = e => {
+      r?.(e), t(e)
+    }, e.fail = e => {
+      i?.(e), n(e)
+    }, L.events.modal?.show?.(e)
+  })
+}
+
+function fe(e) {
+  if (i(e)) return se.static + e
+}
+var pe = {
+    install(e) {
+      let t = e.config.globalProperties;
+      t.$go = function(e) {
+          if (e.currentTarget) {
+            let n = e.currentTarget.dataset;
+            if (n.to)
+              if (n.query) {
+                let e = n.query.split(`&`).reduce((e, t) => {
+                  let n = t.split(`=`);
+                  return e[n[0]] = n[1], e
+                }, {});
+                t.$router.push({
+                  name: n.to,
+                  query: e
+                })
+              } else t.$router.push({
+                name: n.to
+              })
+          }
+        }, t.$back = function() {
+          t.$router.back()
+        }, t.$OS = $.terminal.client.os, t.$isMobile = $.terminal.client.isMobile, t.$clipboard = $.clipboard, t
+        .$isEmpty = n, t.$hasValue = i, t.$toStaticUrl = fe
+    }
+  },
+  G = u(`app`, () => {
+    let e = t(!1),
+      i = t(!1),
+      a = t($.is(`show_log_view`)),
+      s = t($.terminal.setting.is(`reconnectable`)),
+      l = t(z.getObject(`BEESIM_JWT`, {})),
+      u = t(``),
+      d = t(``),
+      f = t([]),
+      p = {
+        profiles: []
+      },
+      m = c().global.t;
+    $.terminal.setting.is(`enable_log`, !0), $.terminal.on(`connected`, `app`, t => {
+      d.value = t.name, e.value = t.connected, t.connected || V({
+        message: m(`ble.device-disconnected`),
+        type: `error`
+      })
+    }).on(`loading`, `execute`, (e, t) => {
+      e ? H(t) : U()
+    }), L.on(`global`, `unauthorized`, () => g());
+
+    function h(e, t) {
+      l.value.token = t, l.value.user = e, z.setObject(`BEESIM_JWT`, l.value)
+    }
+
+    function g() {
+      l.value = {}, z.remove(`BEESIM_JWT`)
+    }
+
+    function _() {
+      return !o(l.value.user)
+    }
+
+    function ee(e, t) {
+      l.value.user && (typeof e == `object` ? r(l.value.user, e) && z.setObject(`BEESIM_JWT`, l.value) : o(t) || l
+        .value.user[e] !== t && (l.value.user[e] = t, z.setObject(`BEESIM_JWT`, l.value)))
+    }
+
+    function v(e) {
+      return p.profiles.find(t => t.iccid === e)
+    }
+
+    function y(e) {
+      p.profiles = p.profiles.filter(t => t.iccid !== e), b()
+    }
+
+    function b() {
+      let e = 0,
+        t = p.profiles.filter(t => t.profileClass === `operational` ? !0 : (t.profileClass === `provisioning` && e++,
+          !$.is(`filter_profile`)));
+      return p.profiles.length > 0 && $.is(`pe_check_enable`, e > 0), f.value = t, t
+    }
+    async function x(t) {
+      return !t && (!e.value || p.profiles.length > 0) ? b() : ($.terminal.showExecuting(m(`loading.refresh`)), n(u
+        .value) && (u.value = await $.terminal.GetEid()), p.profiles = (await $.terminal.GetProfilesInfo(
+        `5C075A9F7090919295`)).toJson(), b())
+    }
+    async function S() {
+      try {
+        $.terminal.showExecuting(m(`loading.init`)), u.value = (await $.init()).eid, $.terminal.showExecuting(m(
+          `loading.refresh`)), p.profiles = (await $.terminal.GetProfilesInfo(`5C075A9F7090919295`)).toJson(), b()
+      } finally {
+        $.terminal.hideExecuting(!0)
+      }
+    }
+
+    function C(e, t) {
+      typeof t == `string` && (t = {
+        message: t
+      }), t ||= {
+        message: m(`hint.waiting-for-task-completed`)
+      }, t.message ||= m(`hint.waiting-for-task-completed`), i.value ? de({
+        message: t.message
+      }) : (i.value = !0, e().then(() => t.success?.()).catch(e => {
+        t.fail ? t.fail(e) : W({
+          title: m(`modal.hint`),
+          content: e.message
+        })
+      }).finally(() => {
+        i.value = !1, t.completed?.()
+      }))
+    }
+    return {
+      jwt: l,
+      connected: e,
+      name: d,
+      eid: u,
+      profiles: f,
+      showLogger: a,
+      reconnectable: s,
+      isLogined: _,
+      setJwt: h,
+      clearJwt: g,
+      jwtUser: ee,
+      getFromProfileList: v,
+      removeFromProfileList: y,
+      filterProfileList: b,
+      loadProfileList: x,
+      initData: S,
+      toExecuteTask: C
+    }
+  });
+
+function me(e, t) {
+  let r = l(e),
+    i = n(t) ? `` : JSON.stringify(t),
+    a = Date.now().toString(),
+    o = I.MD5(I.BASE64.encrypt(r + i + a + B.secret.Mall, `UTF-8`));
+  return new Headers({
+    "X-Timestamp": a,
+    "X-Sign": o
+  })
+}
+
+function K(e, t, r) {
+  let i = l(e),
+    a = n(t) ? `` : JSON.stringify(t),
+    o = Date.now().toString(),
+    s = new Headers({
+      "B-Timestamp": o
+    });
+  r && s.append(`B-Token`, r);
+  let c = I.MD5(I.BASE64.encrypt(i + a + (r || ``) + o + B.secret.BeeSIM, `UTF-8`));
+  return s.append(`B-Sign`, c), s
+}
+
+function q(e, t) {
+  return R({
+    url: `/v1/main/common/logger.do`,
+    method: `POST`,
+    params: {
+      action: e
+    },
+    data: t
+  })
+}
+
+function he(e, t) {
+  let n = {
+    action: e
+  };
+  return R({
+    headers: me(n, t),
+    url: `/v2/plugin/mall/firmware.do`,
+    method: `POST`,
+    params: n,
+    data: t
+  })
+}
+
+function ge(e, t) {
+  let n = {
+    action: e
+  };
+  return R({
+    url: `/v1/main/user/mall/login.do`,
+    headers: K(n, t),
+    method: `POST`,
+    params: n,
+    data: t
+  })
+}
+
+function _e(e, t) {
+  let n = {
+    action: e
+  };
+  return R({
+    url: `/v1/main/user/mall/jwt/bluetooth.do`,
+    headers: K(n, t, G().jwt.token),
+    method: `POST`,
+    params: n,
+    data: t
+  })
+}
+var J = {};
+
+function ve(e) {
+  return Date.now() - (J[e] || 0) < 6e5
+}
+async function ye(e) {
+  if (ve(e.to)) return {
+    status: 200,
+    msg: `Success`
+  };
+  let t = {
+      action: `email`
+    },
+    n = await R({
+      url: `/v1/main/common/mall/vercode.do`,
+      headers: K(t, e),
+      method: `POST`,
+      params: t,
+      data: e
+    });
+  return n.status === 200 && (J[e.to] = Date.now()), n
+}
+
+function be(e, t) {
+  let n = {
+    action: e
+  };
+  return R({
+    url: `/v1/main/user/mall.do`,
+    headers: K(n, t),
+    method: `POST`,
+    params: n,
+    data: t
+  })
+}
+var xe = class {
+    value;
+    todo;
+    constructor(e, t) {
+      this.value = t, this.todo = e
+    }
+    progress(e = 1) {
+      this.value.index += e, this.todo(this.value)
+    }
+    message(e, t) {
+      this.value.message = e, this.value.index++, t && (this.value.loader = t), this.todo(this.value)
+    }
+    loader(e, t) {
+      this.value.loader = e, this.value.index++, t && (this.value.message = t), this.todo(this.value)
+    }
+    adjust(e, t, n) {
+      this.value.index < e && (this.value.index = e), n && (this.value.loader = n), t && (this.value.message = t),
+        this.todo(this.value)
+    }
+    success(e) {
+      this.value.message = e, this.value.index = this.value.total, this.value.loader = ``, this.todo(this.value)
+    }
+    error(e) {
+      this.value.message = e, this.value.index = -1, this.value.loader = ``, this.todo(this.value)
+    }
+  },
+  Se = class {
+    device;
+    server;
+    write;
+    _meta;
+    constructor() {
+      let e = z.getObject(`BLUETOOTH_LPA_METADATA`);
+      e ||= {
+        name: ``,
+        deviceId: ``,
+        eid: ``,
+        svn: `v2.2.2`,
+        firmware: `unknown`,
+        crc: `0000`
+      }, this._meta = e
+    }
+    get connected() {
+      return this.device?.gatt?.connected || !1
+    }
+    get name() {
+      return this.device?.name || ``
+    }
+    get isDiff() {
+      return this.device ? this._meta.deviceId === this.device.id ? !1 : (this._meta.deviceId = this.device.id, z
+        .setObject(`BLUETOOTH_LPA_METADATA`, this._meta), !0) : !0
+    }
+    clear() {
+      this._meta.eid = ``, this._meta.name = ``, this._meta.deviceId = ``, z.setObject(`BLUETOOTH_LPA_METADATA`, this
+        ._meta)
+    }
+    data(e, t) {
+      return n(e) ? this._meta : typeof e == `object` ? (r(this._meta, e) && z.setObject(`BLUETOOTH_LPA_METADATA`,
+        this._meta), this._meta) : o(t) ? this._meta[e] : (this._meta[e] !== t && (this._meta[e] = t, z.setObject(
+        `BLUETOOTH_LPA_METADATA`, this._meta)), t)
+    }
+  },
+  Ce = class {
+    _value = {
+      filter: !0,
+      enable_pin: !1,
+      enable_log: !1,
+      store_max_lc: 120,
+      channel: 1,
+      delay_over_counter: 0,
+      reply_timeout: 3e4,
+      services: [],
+      reconnectable: !0
+    };
+    _events;
+    constructor() {
+      this._events = {};
+      let e = z.getObject(`BLUETOOTH_SETTING`);
+      e && r(this._value, e) && z.setObject(`BLUETOOTH_SETTING`, this._value)
+    }
+    on(e, t, n) {
+      this._events[e] || (this._events[e] = new Map), this._events[e].set(t, n)
+    }
+    off(e, t) {
+      this._events[e] && (t ? this._events[e].delete(t) : this._events[e] = void 0)
+    }
+    emit(e, t) {
+      this._events[e]?.forEach(e => e(t))
+    }
+    values(e) {
+      let t = r(this._value, e);
+      return t && (Object.keys(t).forEach(e => {
+        this.emit(e, this._value[e])
+      }), z.setObject(`BLUETOOTH_SETTING`, this._value)), this
+    }
+    is(e, t) {
+      return o(t) ? this._value[e] : (this._value[e] !== t && (this._value[e] = t, this.emit(e, t), z.setObject(
+        `BLUETOOTH_SETTING`, this._value)), t)
+    }
+    toJSON() {
+      return this._value
+    }
+  },
+  we = class {
+    data;
+    value;
+    constructor(e) {
+      if (this.data = e, e[0] === 191 && e[1] === 32) this.value = b(g(e), {
+        82: {
+          key: `svn`,
+          formatter: w
+        },
+        A9: {
+          key: `euiccCiPKIdListForVerification`
+        },
+        AA: {
+          key: `euiccCiPKIdListForSigning`
+        }
+      });
+      else throw Error(`解析失败，TAG不匹配(${k(e,0,2,``)})`)
+    }
+    toBase64() {
+      return I.BASE64.encrypt(this.data)
+    }
+    toJson() {
+      return this.value
+    }
+  },
+  Y = {
+    toUTF8String(e) {
+      let t = ``;
+      for (let n = 0; n < e.byteLength;) {
+        let r = e[n],
+          i = 0,
+          a = 0;
+        if (r <= 127 ? i = r & 255 : r <= 223 ? (a = 1, i = r & 31) : r <= 239 ? (a = 2, i = r & 15) : r <= 244 && (a =
+            3, i = r & 7), e.byteLength - n - a > 0)
+          for (let t = 0; t < a;) r = e[n + ++t], i = i << 6 | r & 63;
+        else i = 65533, a = e.byteLength - n;
+        t += String.fromCodePoint(i), n += a + 1
+      }
+      return t
+    },
+    decode(e, t = `UTF-8`) {
+      if (e) {
+        if (t.toUpperCase() === `UTF-8`) return Y.toUTF8String(e);
+        throw Error(`Only UTF-8 is supported!`)
+      } else return ``
+    }
+  },
+  X = Y,
+  Te = class {
+    value = {};
+    constructor(e) {
+      if (e instanceof Uint8Array)
+        if (e[0] === 191 && e[1] === 34) this.value = this.toEuiccInfo2ValueFromTLVs(g(e));
+        else throw Error(`解析失败，TAG不匹配(${k(e,0,2,``)})`);
+      else if (e.tag === `BF22`) this.value = this.toEuiccInfo2ValueFromTLVs(e.value);
+      else throw Error(`解析失败，TAG不匹配(${e.tag})`)
+    }
+    toEuiccInfo2ValueFromTLVs(e) {
+      return b(e, {
+        81: {
+          key: `profileVersion`,
+          formatter: w
+        },
+        82: {
+          key: `svn`,
+          formatter: w
+        },
+        83: {
+          key: `euiccFirmwareVer`,
+          formatter: w
+        },
+        84: {
+          key: `extCardResource`,
+          formatter: e => this.toExtCardResource(e)
+        },
+        85: {
+          key: `uiccCapability`
+        },
+        86: {
+          key: `ts102241Version`,
+          formatter: w
+        },
+        87: {
+          key: `globalplatformVersion`,
+          formatter: w
+        },
+        88: {
+          key: `rspCapability`,
+          formatter: e => this.toRspCapability(e)
+        },
+        A9: {
+          key: `euiccCiPKIdListForVerification`
+        },
+        AA: {
+          key: `euiccCiPKIdListForSigning`
+        },
+        AB: {
+          key: `euiccCiPKIdListForSigning`,
+          formatter: e => this.toEuiccCategory(e)
+        },
+        99: {
+          key: `forbiddenProfilePolicyRules`
+        },
+        "04": {
+          key: `ppVersion`,
+          formatter: w
+        },
+        "0C": {
+          key: `sasAcreditationNumber`,
+          formatter: e => X.decode(A(e))
+        },
+        AC: {
+          key: `certificationDataObject`,
+          formatTLV: e => this.toCertificationDataObject(e)
+        }
+      })
+    }
+    toEuiccCategory(e) {
+      switch (e) {
+        case `00`:
+          return `Other(0)`;
+        case `01`:
+          return `BasicEuicc(0)`;
+        case `02`:
+          return `MediumEuicc(0)`;
+        default:
+          return `ContactlessEuicc(0)`
+      }
+    }
+    toExtCardResource(e) {
+      return b(g(A(e)), {
+        81: {
+          key: `installedApplication`
+        },
+        82: {
+          key: `freeNonVolatileMemory`,
+          formatter: e => (N(A(e)) / 1024).toFixed(2) + `KB`
+        },
+        83: {
+          key: `freeVolatileMemory`,
+          formatter: e => (N(A(e)) / 1024).toFixed(2) + `KB`
+        }
+      })
+    }
+    toRspCapability(e) {
+      return e
+    }
+    toCertificationDataObject(e) {
+      return S(e)
+    }
+    toJson() {
+      return this.value
+    }
+  },
+  Z = class {
+    static toBytes(e) {
+      switch (e) {
+        case `INSTALL`:
+          return new Uint8Array([7, 128]);
+        case `ENABLE`:
+          return new Uint8Array([6, 64]);
+        case `DISABLE`:
+          return new Uint8Array([5, 32]);
+        case `DELETE`:
+          return new Uint8Array([4, 16]);
+        default:
+          return new Uint8Array([0, 0])
+      }
+    }
+    static toLabel(e) {
+      return e.endsWith(`80`) ? `INSTALL` : e.endsWith(`40`) ? `ENABLE` : e.endsWith(`20`) ? `DISABLE` : e.endsWith(
+        `10`) ? `DELETE` : `UNKNOWN`
+    }
+  },
+  Q = class {
+    value;
+    constructor(e) {
+      this.value = b(e.value, {
+        80: {
+          key: `index`
+        },
+        81: {
+          key: `profileManagementOperation`,
+          formatter: Z.toLabel
+        },
+        "0C": {
+          key: `notificationAddress`,
+          formatter: e => X.decode(A(e))
+        },
+        "5A": {
+          key: `iccid`,
+          formatter: D
+        }
+      })
+    }
+    toJson() {
+      return this.value
+    }
+  },
+  Ee = class {
+    notificationMetadataList = [];
+    constructor(e) {
+      if (e[0] === 191 && e[1] === 40) this.toNotificationMetadataList(g(e)[0]);
+      else throw Error(`通知列表获取失败(${k(e,0,2,``)})`)
+    }
+    toNotificationMetadataList(e) {
+      Array.isArray(e.value) && e.value.forEach(e => {
+        if (e.tag === `A0`) Array.isArray(e.value) && e.value.forEach(e => {
+          e.tag === `BF2F` && this.notificationMetadataList.push(new Q(e).toJson())
+        });
+        else throw e.tag === `02` ? Error(`未定义错误(${e.value})`) : Error(`获取失败，未识别的TAG(${e.tag})`)
+      })
+    }
+    toJson() {
+      return this.notificationMetadataList
+    }
+  },
+  De = class {
+    value;
+    constructor(e) {
+      this.value = b(e.value, {
+        80: {
+          key: `transactionId`
+        },
+        BF2F: {
+          key: `notificationMetadata`,
+          formatTLV: e => new Q(e).toJson()
+        },
+        "06": {
+          key: `smdpOid`
+        },
+        A2: {
+          key: `finalResult`,
+          formatTLV: e => this.toFinalResult(e)
+        }
+      })
+    }
+    toSuccessResult(e) {
+      return b(e.value, {
+        "4F": {
+          key: `aid`
+        },
+        82: {
+          key: `simaResponse`,
+          formatter: () => `安装成功`
+        }
+      })
+    }
+    toBppCommanId(e = `none`) {
+      switch (e) {
+        case `00`:
+          return `initialiseSecureChannel(0)`;
+        case `01`:
+          return `configureISDP(1)`;
+        case `02`:
+          return `storeMetadata(2)`;
+        case `03`:
+          return `storeMetadata2(3)`;
+        case `04`:
+          return `replaceSessionKeys(4)`;
+        case `05`:
+          return `loadProfileElements(5)`;
+        default:
+          return `unknown(${e})`
+      }
+    }
+    toErrorReason(e = `none`) {
+      switch (e) {
+        case `01`:
+          return `输入内容不正确`;
+        case `02`:
+          return `签名不正确`;
+        case `03`:
+          return `事务ID不正确`;
+        case `04`:
+          return `CRT值不受支持`;
+        case `05`:
+          return `远程操作类型不受支持`;
+        case `06`:
+          return `配置类型不受支持`;
+        case `07`:
+          return `SCP03结构错误`;
+        case `08`:
+          return `SCP03安全错误`;
+        case `09`:
+          return `安装失败：此号码已存在`;
+        case `0A`:
+          return `安装失败：配置文件内存不足`;
+        case `0B`:
+          return `安装失败：进程已中断`;
+        case `0C`:
+          return `安装失败：PE处理错误`;
+        case `0D`:
+          return `安装失败：数据不匹配`;
+        case `0E`:
+          return `TEST配置安装失败：NAA密钥不正确`;
+        case `0F`:
+          return `安装失败：PPR不被允许`;
+        default:
+          return `安装失败：错误代码(${e})`
+      }
+    }
+    toErrorResult(e) {
+      return b(e.value, {
+        80: {
+          key: `bppCommandId`,
+          formatter: this.toBppCommanId
+        },
+        81: {
+          key: `errorReason`,
+          formatter: this.toErrorReason
+        },
+        82: {
+          key: `simaResponse`
+        }
+      })
+    }
+    toFinalResult(e) {
+      return b(e.value, {
+        A0: {
+          key: `successResult`,
+          formatTLV: e => this.toSuccessResult(e)
+        },
+        A1: {
+          key: `errorResult`,
+          formatTLV: e => this.toErrorResult(e)
+        }
+      })
+    }
+    toJson() {
+      return this.value
+    }
+  },
+  Oe = class {
+    data;
+    tlv;
+    value;
+    constructor(e) {
+      if (e instanceof Uint8Array) {
+        this.data = e;
+        let t = _(g(e), `BF37`);
+        if (t) this.tlv = t, this.value = this.toParseValue(t);
+        else throw Error(`解析失败，未匹配安装结果`)
+      } else this.tlv = e, this.value = this.toParseValue(e)
+    }
+    toParseValue(e) {
+      return b(e.value, {
+        BF27: {
+          key: `profileInstallationResultData`,
+          formatTLV: e => new De(e).toJson()
+        },
+        "5F37": {
+          key: `euiccSignPIR`
+        }
+      })
+    }
+    toBase64() {
+      return this.data ||= C(this.tlv), I.BASE64.encrypt(this.data)
+    }
+    toJson() {
+      return this.value
+    }
+  },
+  ke = class {
+    value;
+    constructor(e) {
+      this.value = b(e.value, {
+        BF2F: {
+          key: `tbsOtherNotification`,
+          formatTLV: e => new Q(e).toJson()
+        },
+        "5F37": {
+          key: `euiccNotificationSignature`,
+          formatTLV: e => S(e)
+        },
+        30: new f([{
+          key: `euiccCertificate`
+        }, {
+          key: `eumCertificate`
+        }])
+      })
+    }
+    toJson() {
+      return this.value
+    }
+  },
+  Ae = class {
+    value;
+    constructor(e) {
+      this.value = b([e], {
+        BF37: {
+          key: `profileInstallationResult`,
+          formatTLV: e => new Oe(e).toJson()
+        },
+        30: {
+          key: `otherSignedNotification`,
+          formatTLV: e => new ke(e).toJson()
+        }
+      })
+    }
+    toJson() {
+      return this.value
+    }
+  },
+  je = class {
+    tlv;
+    data;
+    notificationList = [];
+    constructor(e) {
+      if (this.data = e, e[0] === 191 && e[1] === 43) this.tlv = g(e)[0];
+      else throw Error(`检索失败(${k(e,0,2,``)})`)
+    }
+    toNotificationList() {
+      Array.isArray(this.tlv.value) && this.tlv.value.forEach(e => {
+        if (e.tag === `A0`) Array.isArray(e.value) && e.value.forEach(e => {
+          this.notificationList.push(new Ae(e).toJson())
+        });
+        else if (e.tag === `02`) throw Error(`未定义的错误(${e.value})`);
+        else throw Error(`通知检索失败，未匹配TAG(${e.tag})`)
+      })
+    }
+    toBase64() {
+      return I.BASE64.encrypt(this.data)
+    }
+    toPendingNotificationBase64() {
+      if (Array.isArray(this.tlv.value)) {
+        let e = ee(this.tlv.value, `A0`);
+        if (e && Array.isArray(e.value) && e.value[0]) return I.BASE64.encrypt(C(e.value[0]))
+      }
+      throw Error(`发送失败：没有待处理的通知`)
+    }
+    toJson() {
+      return this.notificationList.length === 0 && this.toNotificationList(), this.notificationList
+    }
+  },
+  Me = class {
+    data;
+    value;
+    constructor(e) {
+      if (this.data = e, e[0] === 191 && e[1] === 56) this.value = b(g(e), {
+        A0: {
+          key: `authenticateResponseOk`,
+          formatTLV: e => this.toAuthenticateResponseOk(e)
+        },
+        A1: {
+          key: `authenticateResponseError`,
+          formatTLV: e => this.toAuthenticateResponseError(e)
+        }
+      });
+      else throw Error(`解析失败，TAG不匹配(${k(e,0,2,``)})`)
+    }
+    toCtxParams1(e) {
+      return b(e.value, {
+        80: {
+          key: `matchingId`,
+          formatter: e => X.decode(A(e))
+        },
+        A1: {
+          key: `deviceInfo`
+        }
+      })
+    }
+    toEuiccSigned1(e) {
+      return b(e.value, {
+        80: {
+          key: `transactionId`
+        },
+        83: {
+          key: `serverAddress`,
+          formatter: e => X.decode(A(e))
+        },
+        84: {
+          key: `serverChallenge`
+        },
+        BF22: {
+          key: `euiccInfo2`,
+          formatTLV: e => new Te(e).toJson()
+        },
+        A0: {
+          key: `ctxParams1`,
+          formatTLV: e => this.toCtxParams1(e)
+        }
+      })
+    }
+    toAuthenticateResponseOk(e) {
+      return b(e.value, {
+        "5F37": {
+          key: `euiccSignature1`
+        },
+        30: new f([{
+          key: `euiccSigned1`,
+          formatTLV: e => this.toEuiccSigned1(e)
+        }, {
+          key: `euiccCertificate`
+        }, {
+          key: `eumCertificate`
+        }])
+      })
+    }
+    toAuthenticateResponseError(e) {
+      return b(e.value, {
+        80: {
+          key: `transactionId`
+        },
+        "02": {
+          key: `authenticateErrorCode`,
+          formatter: e => {
+            switch (e) {
+              case `01`:
+                throw Error(`认证失败：证书无效`);
+              case `02`:
+                throw Error(`认证失败：签名无效`);
+              case `03`:
+                throw Error(`认证失败：Curve不支持`);
+              case `04`:
+                throw Error(`认证失败：无会话上下文`);
+              case `05`:
+                throw Error(`认证失败：无效的OID`);
+              case `06`:
+                throw Error(`认证失败：Challenge值不匹配`);
+              case `07`:
+                throw Error(`认证失败：未知的ciPK`);
+              default:
+                throw Error(`认证失败：未定义的错误(${e})`)
+            }
+          }
+        }
+      })
+    }
+    toBase64() {
+      return I.BASE64.encrypt(this.data)
+    }
+    toJson() {
+      return this.value
+    }
+  },
+  Ne = class {
+    data;
+    value;
+    constructor(e) {
+      if (this.data = e, e[0] === 191 && e[1] === 33) this.value = b(g(e), {
+        A0: {
+          key: `downloadResponseOk`,
+          formatTLV: e => this.parseDownloadResponseOk(e)
+        },
+        A1: {
+          key: `downloadResponseError`,
+          formatTLV: e => this.parseDownloadResponseError(e)
+        }
+      });
+      else throw Error(`解析失败，TAG不匹配(${k(e,0,2,``)})`)
+    }
+    parseEUICCSigned2(e) {
+      return b(e.value, {
+        80: {
+          key: `transactionId`
+        },
+        "5F49": {
+          key: `euiccOtpk`
+        },
+        "04": {
+          key: `hashCc`
+        }
+      })
+    }
+    parseDownloadResponseOk(e) {
+      return b(e.value, {
+        30: {
+          key: `euiccSigned2`,
+          formatTLV: e => this.parseEUICCSigned2(e)
+        },
+        "5F37": {
+          key: `euiccSignature2`
+        }
+      })
+    }
+    parseDownloadResponseError(e) {
+      return b(e.value, {
+        80: {
+          key: `transactionId`
+        },
+        "02": {
+          key: `downloadErrorCode`,
+          formatter: e => {
+            switch (e) {
+              case `01`:
+                throw Error(`安装失败：证书无效`);
+              case `02`:
+                throw Error(`安装失败：签名无效`);
+              case `03`:
+                throw Error(`安装失败：Curve不支持`);
+              case `04`:
+                throw Error(`安装失败：无会话上下文`);
+              case `05`:
+                throw Error(`安装失败：缺少Transaction ID`);
+              default:
+                throw Error(`安装失败：错误代码(${e})`)
+            }
+          }
+        }
+      })
+    }
+    toBase64() {
+      return I.BASE64.encrypt(this.data)
+    }
+    toJson() {
+      return this.value
+    }
+  },
+  Pe = class {
+    value;
+    constructor(e) {
+      this.value = b(e.value, {
+        80: {
+          key: `profileManagementOperation`,
+          formatter: Z.toLabel
+        },
+        81: {
+          key: `notificationAddress`,
+          formatter: e => X.decode(A(e))
+        }
+      })
+    }
+    toJson() {
+      return this.value
+    }
+  };
+
+function Fe(e) {
+  return e === `01` ? `provisioning` : e === `02` ? `operational` : `test`
+}
+var Ie = class {
+    value;
+    constructor(e) {
+      if (e.tag === `E3`) this.value = this.toParseValue(e);
+      else throw Error(`配置解析失败，无效TAG(${e.tag})`)
+    }
+    toParseValue(e) {
+      return b(e.value, {
+        "5A": {
+          key: `iccid`,
+          formatter: D
+        },
+        "4F": {
+          key: `isdpAid`
+        },
+        "9F70": {
+          key: `profileState`,
+          formatter: e => e === `01` ? `ON` : `OFF`
+        },
+        90: {
+          key: `profileNickname`,
+          formatter: e => X.decode(A(e))
+        },
+        91: {
+          key: `serviceProviderName`,
+          formatter: e => X.decode(A(e))
+        },
+        92: {
+          key: `profileName`,
+          formatter: e => X.decode(A(e))
+        },
+        93: {
+          key: `iconType`,
+          formatter: e => e === `01` ? `jpg` : `png`
+        },
+        94: {
+          key: `icon`,
+          formatter: e => I.BASE64.encrypt(e)
+        },
+        95: {
+          key: `profileClass`,
+          formatter: e => Fe(e)
+        },
+        B6: {
+          key: `notificationConfigurationInfo`,
+          formatTLV: e => new Pe(e).toJson()
+        },
+        B7: {
+          key: `profileOwner`
+        },
+        B8: {
+          key: `dpProprietaryData`
+        },
+        99: {
+          key: `profilePolicyRules`
+        }
+      })
+    }
+    toJson() {
+      return this.value
+    }
+  },
+  Le = class {
+    profileInfoList = [];
+    constructor(e) {
+      if (e[0] === 191 && e[1] === 45) this.toProfileInfoList(g(e)[0]);
+      else throw Error(`获取失败(${k(e,0,2,``)})`)
+    }
+    toProfileInfoList(e) {
+      e.value.forEach(e => {
+        if (e.tag === `A0`) e.value.forEach(e => {
+          e.tag === `E3` && this.profileInfoList.push(new Ie(e).toJson())
+        });
+        else throw e.tag === `02` ? e.value === `01` ? Error(`输入的指令不正确！`) : Error(`未定义错误(${e.value})`) : Error(
+          `获取失败，未识别的TAG(${e.tag})`)
+      })
+    }
+    toJson() {
+      return this.profileInfoList
+    }
+  },
+  Re = class {
+    tlvs;
+    blocks = [];
+    constructor(e) {
+      typeof e == `string` ? this.tlvs = g(I.BASE64.decryptAsBytes(e)) : this.tlvs = g(e)
+    }
+    handlers = {
+      BF23: (e, t) => [t.tag + h(t.length) + S(e)],
+      A0: e => [S(e)],
+      A1: e => {
+        let t = [e.tag + h(e.length)];
+        for (let n of e.value) t.push(S(n));
+        return t
+      },
+      A2: e => [S(e)],
+      A3: e => {
+        let t = [e.tag + h(e.length)];
+        for (let n of e.value) t.push(S(n));
+        return t
+      }
+    };
+    toBlocks() {
+      if (this.blocks.length > 0) return this.blocks;
+      let e = this.tlvs[0];
+      if (e)
+        for (let t of e.value) {
+          let n = this.handlers[t.tag];
+          n && this.blocks.push(...n(t, e))
+        } else throw Error(`BPP数据已丢失`);
+      return this.blocks
+    }
+  },
+  ze = class {
+    iccid;
+    serviceProviderName;
+    profileName;
+    iconType;
+    icon;
+    profileClass;
+    notificationConfigurationInfo;
+    profileOwner;
+    profilePolicyRules;
+    constructor(e) {
+      typeof e == `string` && (e = I.BASE64.decryptAsBytes(e));
+      let t = g(e);
+      if (t.length === 0 || t[0]?.tag !== `BF25`) throw Error(`数据解析失败，无效TAG(${t[0]?.tag||`unknown`})`);
+      this.iccid = ``, this.serviceProviderName = ``, this.profileName = ``, this.toParseValue(t[0])
+    }
+    toParseValue(e) {
+      let t = b(e.value, {
+        "5A": {
+          key: `iccid`,
+          formatter: D
+        },
+        91: {
+          key: `serviceProviderName`,
+          formatter: e => X.decode(A(e))
+        },
+        92: {
+          key: `profileName`,
+          formatter: e => X.decode(A(e))
+        },
+        93: {
+          key: `iconType`,
+          formatter: e => e === `01` ? `jpg` : `png`
+        },
+        94: {
+          key: `icon`,
+          formatter: e => I.BASE64.encrypt(e)
+        },
+        95: {
+          key: `profileClass`,
+          formatter: e => Fe(e)
+        },
+        B6: {
+          key: `notificationConfigurationInfo`
+        },
+        B7: {
+          key: `profileOwner`
+        },
+        99: {
+          key: `profilePolicyRules`
+        }
+      });
+      this.iccid = t.iccid, this.serviceProviderName = t.serviceProviderName, this.profileName = t.profileName, this
+        .iconType = t.iconType, this.icon = t.icon, this.profileClass = t.profileClass, this
+        .notificationConfigurationInfo = t.notificationConfigurationInfo, this.profileOwner = t.profileOwner, this
+        .profilePolicyRules = t.profilePolicyRules
+    }
+    toJSON() {
+      return {
+        iccid: this.iccid,
+        serviceProviderName: this.serviceProviderName,
+        profileName: this.profileName,
+        iconType: this.iconType,
+        icon: this.icon,
+        profileClass: this.profileClass,
+        notificationConfigurationInfo: this.notificationConfigurationInfo,
+        profileOwner: this.profileOwner,
+        profilePolicyRules: this.profilePolicyRules
+      }
+    }
+  },
+  Be = class {
+    value;
+    offset = 0;
+    constructor(e = 16) {
+      this.value = new Uint8Array(e)
+    }
+    ensureCapacity(e) {
+      if (e > 0 && this.value.byteLength < e) {
+        let t = Math.max(this.value.byteLength << 1, e),
+          n = new Uint8Array(t);
+        n.set(this.value.subarray(0, this.offset), 0), this.value = n
+      }
+    }
+    append(e) {
+      let t;
+      return t = e instanceof Uint8Array ? e : new Uint8Array(e), this.ensureCapacity(this.offset + t.byteLength),
+        this.value.set(t, this.offset), this.offset += e.byteLength, this
+    }
+    size() {
+      return this.offset
+    }
+    getBytes() {
+      return this.value.subarray(0, this.offset)
+    }
+    toHexString(e = ``) {
+      return k(this.getBytes(), e)
+    }
+  },
+  Ve = class e {
+    static LPA_REG = /1\$([a-zA-Z0-9-.]+)(\$([A-Za-z0-9-]+))?(\$\$([0-9A-Za-z-]+))?/;
+    events;
+    _inited = !1;
+    _counter = 0;
+    _bytes;
+    _resolve;
+    _reject;
+    _params;
+    _profileMetadata;
+    _executing;
+    setting;
+    opened;
+    percentage;
+    constructor() {
+      this.events = {}, this._params = {
+        transactionId: ``,
+        smdpAddress: ``,
+        protocol: ``
+      }, this.setting = new Ce, this._executing = [], this.opened = !1
+    }
+    hashedConfirmCode(e, t) {
+      return I.SHA256.digest(A(I.SHA256.hex(t) + e))
+    }
+    resetCallback() {
+      this._resolve = void 0, this._reject = void 0
+    }
+    translate(e, t, n) {
+      return typeof t == `string` ? t : e
+    }
+    getProfileMetadata() {
+      return this._profileMetadata
+    }
+    parseLPA(t) {
+      let n = t.match(e.LPA_REG);
+      if (!n) throw Error(this.translate(`failed.parse-lpa`, `解析失败，请核实您的eSIM LPA`));
+      return this.params(`smdpAddress`, n[1]).params(`matchingId`, n[3]).params(`confirmationCode`, n[5]), this
+        ._params
+    }
+    params(e, t) {
+      return n(e) ? this._params : o(t) ? this._params[e] : (this._params[e] = t, this)
+    }
+    get protocol() {
+      return this._params.protocol
+    }
+    get smdpAddress() {
+      return this._params.smdpAddress
+    }
+    get transactionId() {
+      return this._params.transactionId
+    }
+    interruptSend() {
+      this._reject?.(Error(this.translate(`ble.interrupt-send`, `已中断发送`)))
+    }
+    showExecuting(e) {
+      e ? this._executing.push(e) : this._executing.length > 0 && (e = this._executing[this._executing.length - 1]),
+        e && this.events.loading?.get(`execute`)?.(!0, e)
+    }
+    hideExecuting(e) {
+      e ? (this._executing = [], this.events.loading?.get(`execute`)?.(!1)) : (this._executing.pop(), this._executing
+        .length > 0 ? this.events.loading?.get(`execute`)?.(!0, this._executing[this._executing.length - 1]) : this
+        .events.loading?.get(`execute`)?.(!1))
+    }
+    isInited(e) {
+      return o(e) ? this._inited : this._inited = e
+    }
+    print(e, t = `日志信息`, n = `info`) {
+      if (typeof e == `string`) return this.setting.is(`enable_log`) && this.events.print?.forEach(r => r(e, t, n)),
+      e;
+      if (e instanceof Uint8Array) {
+        if (this.setting.is(`enable_log`)) {
+          let r = k(e, ``);
+          this.events.print?.forEach(e => e(r, t, n))
+        }
+        return e
+      } else this.setting.is(`enable_log`) && this.events.print?.forEach(r => r(e, t, n))
+    }
+    on(e, t, n) {
+      let r = this.events[e];
+      return r ||= this.events[e] = new Map, r.set(t, n), this
+    }
+    off(e, t) {
+      let n = this.events[e];
+      return n && (t ? n.delete(t) : n = this.events[e] = void 0), this
+    }
+    offAll() {
+      return Object.values(this.events).forEach(e => e.clear()), this
+    }
+    isConnected() {
+      throw Error(`isConnected方法未实现`)
+    }
+    reconnect() {
+      throw Error(`reconnect方法未实现`)
+    }
+    writeBLECharacteristicValue(e) {
+      throw Error(`writeBLECharacteristicValue方法未实现`)
+    }
+    appendBytes(e) {
+      if ((e[1] === 1 || o(this._bytes)) && (this._bytes = new Be(512)), this._bytes.append(e.slice(2)), e[0] === e[
+        1]) {
+        let e = this.print(this._bytes.getBytes(), `应答数据`);
+        this._resolve?.call(this, e)
+      }
+    }
+    toGroupBytesForBLE(e) {
+      if (e.length <= 18) return [e];
+      let t = [],
+        n = 0,
+        r = 18;
+      for (; r < e.length; n = r, r += 18) t.push(e.slice(n, r));
+      return n < e.length && t.push(e.slice(n)), t
+    }
+    async toSendBytesByGroups(e) {
+      let t = this.toGroupBytesForBLE(e);
+      for (let e = 0; e < t.length; e++) {
+        let n = t[e],
+          r = new Uint8Array(n.length + 2);
+        r.set([t.length, e + 1], 0), r.set(n, 2), await this.writeBLECharacteristicValue(r)
+      }
+    }
+    toSendBytes(e, t) {
+      return new Promise((n, r) => {
+        if (this._resolve) throw Error(this.translate(`ble.wait-for-prev-response`, this.print(`等待上一条指令应答，请稍后`,
+          `发送指令`, `warning`)));
+        e = this.apdu2Bytes(e), this.toSendBytesByGroups(this.print(e, t)).then(() => {
+          this.percentage?.progress();
+          let e = setTimeout(() => {
+            this.resetCallback(), r(Error(this.translate(`ble.response-timeout`, this.print(
+              `已超时，请拔插卡或重启手机`, t, `error`))))
+          }, this.setting.is(`reply_timeout`));
+          this._resolve = t => {
+            clearTimeout(e), this.resetCallback(), n(t)
+          }, this._reject = n => {
+            clearTimeout(e), this.resetCallback(), this.print(n.message, t, `error`), r(n)
+          }
+        }).catch(e => this._reject ? this._reject(e) : r(e))
+      })
+    }
+    apdu2Bytes(e) {
+      if (typeof e == `string`)
+        if (e = e.replace(/\s+/g, ``), /^[0-9a-fA-F]+$/.test(e)) e = A(e);
+        else throw Error(this.translate(`ble.invalid-apdu`, `APDU只支持十六进制字符串`));
+      return e
+    }
+    async sendApdu(e, t) {
+      this.isConnected() || (await this.reconnect(), this.showExecuting());
+      let n = this.setting.is(`delay_over_counter`);
+      n > 0 && (e = this.apdu2Bytes(e), this.print(`触发延迟执行条件：${n}条, 计数器：${this._counter}`, `触发条件`), this._counter >=
+        n && !(e[1] === 192 || e[1] === 254) ? (this.print(`已连续执行${this._counter}[条件：${n}]条指令，等待1.2秒后继续执行`, `延迟执行`),
+          await s(1200), this._counter = 0) : this._counter++), this._inited || await this.initEUICC();
+      let r = await this.toSendBytes(e, t),
+        i = r.length - 2;
+      return i >= 0 && r[i] === 104 && r[i + 1] === 129 ? (await this.initEUICC(), await this.toSendBytes(e, t)) : r
+    }
+    async rspExecuteDo(e, t) {
+      try {
+        return await R({
+          url: `/v2/plugin/esim/rsp/es9plus/execute.do`,
+          method: `POST`,
+          params: {
+            action: e
+          },
+          data: t
+        })
+      } catch (t) {
+        throw this.print(t.message, e, `error`), t
+      }
+    }
+    handleReasonCode(e) {
+      if (e.status !== 200) {
+        if (e.data?.header?.functionExecutionStatus?.statusCodeData?.reasonCode) {
+          let t = e.data.header.functionExecutionStatus.statusCodeData.reasonCode;
+          switch (t) {
+            case `6.1`:
+              throw Error(this.translate(`rsp.unavailable-auth-failed`, `[${t}] 认证失败，eSIM不可用`, {
+                code: t
+              }));
+            case `6.3`:
+              throw Error(this.translate(`rsp.unavailable-cert-expired`, `[${t}] 证书已过期，eSIM不可用`, {
+                code: t
+              }));
+            case `4.8`:
+              throw Error(this.translate(`rsp.no-enough-space`, `[${t}] eUICC没有足够的空间用于此配置文件`, {
+                code: t
+              }));
+            case `3.9`:
+              throw Error(this.translate(`rsp.unknown-param`, `[${t}] 未知参数异常`, {
+                code: t
+              }));
+            case `4.10`:
+            case `6.4`:
+            case `1.2`:
+            case `4.3`:
+            case `3.7`:
+            case `4.2`:
+            case `3.8`:
+              throw Error(this.translate(`rsp.qrcode-expired`, `[${t}] 该eSIM二维码已失效`, {
+                code: t
+              }));
+            case `2.2`:
+              throw Error(this.translate(`rsp.missing-confirm-code`, `[${t}] 缺少确认码`, {
+                code: t
+              }));
+            default:
+              throw Error(`[${t}] ${e.msg}`)
+          }
+        }
+        throw Error(e.msg)
+      }
+    }
+    async execute() {
+      let {
+        smdpAddress: e
+      } = this._params;
+      if (n(e)) throw Error(this.translate(`ble.smdp-address-required`, `请输入eSIM的DP+地址`));
+      try {
+        await this.initEUICC();
+        let e = await this.InitiateAuthentication(),
+          t = await this.AuthenticateClient(this.transactionId, e),
+          n = await this.GetBoundProfilePackage(this.transactionId, t);
+        await this.HandleNotification(n), this.percentage?.success(this.translate(`success.install`, `安装成功`))
+      } catch (e) {
+        throw this.percentage?.error(e.message), e
+      }
+    }
+    async InitiateAuthentication() {
+      this.percentage?.message(this.translate(`ble.get-challenge`, `读取Challenge参数`), this.translate(`loading.read`,
+        `读取中...`));
+      let e = await this.GetEUICCChallenge();
+      this.percentage?.message(this.translate(`ble.get-euicc-info`, `读取设备参数`));
+      let t = {
+        euiccChallenge: e,
+        euiccInfo1: (await this.GetEUICCInfo1()).toBase64(),
+        smdpAddress: this.smdpAddress,
+        protocol: this.protocol
+      };
+      this.percentage?.adjust(20, this.translate(`ble.initiate-authentication`, `初始化服务器认证`), this.translate(
+        `loading.init`, `初始化中...`)), this.print(t, `ES9p.InitiateAuthentication.Request`, `warning`);
+      let n = await this.rspExecuteDo(`initiateAuthentication`, t);
+      return this.print(n.data, `ES9p.InitiateAuthentication.Response`, `warning`), this.handleReasonCode(n), this
+        .params(`transactionId`, n.data.transactionId), this.percentage?.adjust(50, this.translate(
+          `ble.authenticate-server`, `eUICC认证DP+服务器`), this.translate(`loading.auth`, `认证中...`)), (await this
+          .AuthenticateServer(n.data.serverSigned1, n.data.serverSignature1, n.data.euiccCiPKIdToBeUsed, n.data
+            .serverCertificate, this._params.matchingId)).toBase64()
+    }
+    async AuthenticateClient(e, t) {
+      let n = {
+        transactionId: e,
+        authenticateServerResponse: t,
+        smdpAddress: this.smdpAddress,
+        protocol: this.protocol
+      };
+      this.percentage?.adjust(100, this.translate(`ble.authenticate-client`, `DP+服务器验证客户端`)), this.print(n,
+        `ES9p.AuthenticateClient.Request`, `warning`);
+      let r = await this.rspExecuteDo(`authenticateClient`, n);
+      this.print(r.data, `ES9p.AuthenticateClient.Response`, `warning`), this.handleReasonCode(r);
+      let {
+        smdpSigned2: i,
+        smdpSignature2: a,
+        smdpCertificate: o,
+        profileMetadata: s
+      } = r.data;
+      return this._profileMetadata = new ze(s), this.percentage?.adjust(150, this.translate(`ble.prepare-download`,
+        `准备下载配置文件`), this.translate(`loading.prepare`, `准备中...`)), (await this.PrepareDownload(i, a, o, this._params
+        .confirmationCode)).toBase64()
+    }
+    async GetBoundProfilePackage(e, t) {
+      this.percentage?.adjust(250, this.translate(`ble.get-bpp`, `从DP+服务器下载配置文件`), this.translate(`loading.download`,
+        `下载中...`));
+      let n = {
+        transactionId: e,
+        prepareDownloadResponse: t,
+        smdpAddress: this.smdpAddress,
+        protocol: this.protocol
+      };
+      this.print(n, `ES9p.GetBoundProfilePackage.Request`, `warning`);
+      let r = await this.rspExecuteDo(`getBoundProfilePackage`, n);
+      return this.print(r.data, `ES9p.GetBoundProfilePackage.Response`, `warning`), this.handleReasonCode(r), this
+        .percentage?.adjust(300, this.translate(`ble.write-bpp`, `开始写入配置文件`), this.translate(`loading.write`,
+          `写入中...`)), await this.LoadBoundProfilePackage(r.data.boundProfilePackage)
+    }
+    async HandleNotification(e) {
+      this.percentage?.adjust(800, this.translate(`ble.send-notification`, `发送安装通知到DP+服务器`), this.translate(
+        `loading.send`, `发送中...`));
+      let t = {
+        pendingNotification: e.toBase64(),
+        smdpAddress: this.smdpAddress,
+        protocol: this.protocol
+      };
+      this.print(t, `ES9p.HandleNotification.Request`, `warning`);
+      let n = await this.rspExecuteDo(`handleNotification`, t);
+      this.print(n, `ES9p.HandleNotification.Response`, `warning`), this.handleReasonCode(n), this.percentage?.adjust(
+        850);
+      let r = e.toJson().profileInstallationResultData;
+      if (r.finalResult?.successResult) {
+        let e = r.notificationMetadata;
+        this.percentage?.message(this.translate(`ble.remove-install-notification`, `移除安装通知`), this.translate(
+          `loading.remove`, `移除中...`)), await this.RemoveNotificationFromList(e.index), this.percentage?.adjust(900)
+      } else if (r.finalResult?.errorResult) throw Error(r.finalResult.errorResult.errorReason);
+      else throw Error(this.translate(`ble.install-result-unknown`, `安装结果未知`))
+    }
+    async sendAndDelNotification(e) {
+      try {
+        this.percentage?.message(this.translate(`ble.retrieving-notification`, `正在检索通知(${e})`, {
+          index: e
+        }), this.translate(`loading.retrieve`, `检索中...`));
+        let t = await this.RetrieveNotificationsList(e),
+          [n] = t.toJson();
+        if (n)
+          if (n.otherSignedNotification) this.params(`smdpAddress`, n.otherSignedNotification.tbsOtherNotification
+            .notificationAddress), e = n.otherSignedNotification.tbsOtherNotification.index;
+          else if (n.profileInstallationResult) this.params(`smdpAddress`, n.profileInstallationResult
+            .profileInstallationResultData.notificationMetadata.notificationAddress), e = n.profileInstallationResult
+          .profileInstallationResultData.notificationMetadata.index;
+        else throw Error(this.translate(`ble.missing-smdp-address`, `缺少DP+地址`));
+        else throw Error(this.translate(`ble.missing-notification-data`, `缺失通知数据`));
+        this._params.smdpAddress === `rsp.simhub.cn` && this.params(`smdpAddress`, `rsp-eu.redteamobile.com`);
+        let r = {
+          pendingNotification: t.toPendingNotificationBase64(),
+          smdpAddress: this.smdpAddress,
+          protocol: this.protocol
+        };
+        this.percentage?.adjust(60, this.translate(`ble.send-notification`, `发送通知到DP+服务器`), this.translate(
+          `loading.send`, `发送中...`)), this.print(r, `ES9p.HandleNotification.Request`, `warning`);
+        let i = await this.rspExecuteDo(`handleNotification`, r);
+        this.print(i, `ES9p.HandleNotification.Response`, `warning`), this.handleReasonCode(i), this.percentage
+          ?.adjust(80, this.translate(`ble.removing-notification`, `正在移除通知`), this.translate(`loading.remove`,
+            `移除中...`)), await this.RemoveNotificationFromList(e), this.percentage?.success(this.translate(
+            `success.send`, `发送成功`))
+      } catch (e) {
+        throw this.percentage?.error(e.message), e
+      }
+    }
+    async storeApdu(e, t) {
+      let n = 0,
+        r = 0,
+        i = this.setting.is(`store_max_lc`),
+        a = i,
+        o = (this.setting.is(`channel`) | 128) & 255;
+      for (;;) {
+        let [s, c] = a < e.length ? [17, e.subarray(r, a)] : [145, e.subarray(r)], l = await this.sendApdu(
+          new Uint8Array([o, 226, s, n, c.length, ...c]), t);
+        if (s === 17)
+          if (l[0] === 144 || l[0] === 0 && l[1] === 254) n++, r = a, a += i;
+          else throw Error(this.toSwErrorMsg(l));
+        else if (l[0] === 97 || l[0] === 144) return l;
+        else if (l[1] === 254) return l[1] = l[0], l[0] = l[1] > 0 ? 97 : 144, l;
+        else throw Error(this.toSwErrorMsg(l))
+      }
+    }
+    async readApdu(e, t, n) {
+      let r = new Be(256),
+        i = 192,
+        a = (this.setting.is(`channel`) | 128) & 255;
+      for (;;) {
+        let o = await this.sendApdu(new Uint8Array([a, i, 0, 0, e]), t),
+          s = o.length - 2;
+        if (o[s] === 97) i === 254 && (i = 192), r.append(o.subarray(0, s)), e = o[s + 1];
+        else if (o[s] === 144) return r.append(o.subarray(0, s)), r.getBytes();
+        else if (o[s] === 254 || o[s + 1] === 254) i = 254;
+        else if (n) throw Error(n(o));
+        else throw Error(this.toSwErrorMsg(o))
+      }
+    }
+    async storeAndReadApdu(e, t) {
+      try {
+        this.showExecuting();
+        let n = await this.storeApdu(e, t);
+        if (n[0] === 97) return await this.readApdu(n[1], t);
+        throw Error(this.toSwErrorMsg(n))
+      } catch (e) {
+        throw e
+      }
+    }
+    async initEUICC() {
+      let e = this.setting.is(`channel`);
+      await this.toSendBytes(new Uint8Array([0, 112, 128, e, 0]), `关闭逻辑通道`), await this.toSendBytes(new Uint8Array([
+        128, 170, 0, 0, 10, 169, 8, 129, 0, 130, 1, 1, 131, 1, 7
+      ]), `设备特性`), await this.toSendBytes(new Uint8Array([0, 112, 0, e, 0]), `打开逻辑通道`), await this.toSendBytes(
+        new Uint8Array([e, 164, 4, 0, 16, 160, 0, 0, 5, 89, 16, 16, 255, 255, 255, 255, 137, 0, 0, 1, 0]), `选择应用AID`
+        ), this._inited = !0
+    }
+    toSwErrorMsg(e) {
+      let t = Math.max(e.length - 2, 0);
+      if (e[t] === 98) switch (e[t + 1]) {
+        case 0:
+          return this.translate(`sw.no-info-provided`, `信息未提供！`);
+        case 129:
+          return this.translate(`sw.data-returned-error`, `回送数据错误`);
+        case 130:
+          return this.translate(`sw.file-length-less`, `文件长度小于Le`);
+        case 131:
+          return this.translate(`sw.file-selected-invalid`, `选中的文件无效`);
+        case 132:
+          return this.translate(`sw.fci-mismatch-p2`, `FCI格式与P2指定的不符`)
+      } else if (e[t] === 99) {
+        if (e[t + 1] === 0) return this.translate(`sw.auth-failed`, `认证失败`);
+        if ((e[t + 1] & 240) == 192) {
+          let n = O(e[t + 1] & 15);
+          return this.translate(`sw.verify-failed-and-retry`, `校验失败，允许重试次数：${n}`, {
+            retry: n
+          })
+        }
+      } else if (e[t] === 100) {
+        if (e[t + 1] === 0) return this.translate(`sw.status-flag-unchanged`, `状态标志位没有变`)
+      } else if (e[t] === 101) {
+        if (e[t + 1] === 129) return this.translate(`sw.memory-operation-failed`, `内存操作失败`)
+      } else if (e[t] === 102) switch (e[t + 1]) {
+        case 0:
+          return this.translate(`sw.communicate-timeout`, `通讯接收超时`);
+        case 1:
+          return this.translate(`sw.parity-error-received`, `接收字符奇偶错误`);
+        case 2:
+          return this.translate(`sw.checksum-incorrect`, `校验和不正确`);
+        case 3:
+          return this.translate(`sw.no-fci-in-df`, `当前DF文件无FCI`);
+        case 4:
+          return this.translate(`sw.no-sf-or-kf-in-df`, `当前DF下无SF或KF`)
+      } else if (e[t] === 103) {
+        if (e[t + 1] === 0) return this.translate(`sw.length-error`, `长度错误`)
+      } else if (e[t] === 104) switch (e[t + 1]) {
+        case 129:
+          return this.translate(`sw.channel-unsupported`, `逻辑通道不受支持`);
+        case 130:
+          return this.translate(`sw.security-msg-unsupported`, `安全报文不受支持`);
+        case 132:
+          return this.translate(`sw.cmd-chain-unsupported`, `命令链不受支持`)
+      } else if (e[t] === 105) switch (e[t + 1]) {
+        case 0:
+          return this.translate(`sw.cmd-cant-processed`, `指令不能处理`);
+        case 1:
+          return this.translate(`sw.cmd-unaccepted`, `指令不被接受（无效状态）`);
+        case 129:
+          return this.translate(`sw.cmd-and-file-mismatched`, `指令与文件结构不匹配`);
+        case 130:
+          return this.translate(`sw.operation-unmet`, `操作条件(AC)不满足，没有校验PIN`);
+        case 131:
+          return this.translate(`sw.auth-method-locked`, `认证方法锁定，PIN被锁定`);
+        case 132:
+          return this.translate(`sw.random-number-invalid`, `随机数无效，引用的数据无效`);
+        case 133:
+          return this.translate(`sw.use-condition-unmet`, `使用条件不满足`);
+        case 134:
+          return this.translate(`sw.cmd-unmet-condition`, `不满足命令执行条件(INS有错)`);
+        case 135:
+          return this.translate(`sw.mac-lost`, `MAC丢失`);
+        case 136:
+          return this.translate(`sw.mac-incorrect`, `MAC不正确`)
+      } else if (e[t] === 106) switch (e[t + 1]) {
+        case 128:
+          return this.translate(`sw.data-param-error`, `数据域参数不正确`);
+        case 129:
+          return this.translate(`sw.dir-invalid-app-locked`, `目录无效或应用锁定`);
+        case 130:
+          return this.translate(`sw.file-not-found`, `文件未找到`);
+        case 131:
+          return this.translate(`sw.record-not-found`, `记录未找到`);
+        case 132:
+          return this.translate(`sw.no-enough-space`, `文件预留空间不足`);
+        case 134:
+          return this.translate(`sw.p1-p2-incorrect`, `P1或P2参数不正确`);
+        case 136:
+          return this.translate(`sw.ref-data-not-found`, `引用数据未找到`)
+      } else if (e[t] === 107) {
+        if (e[t + 1] === 0) return this.translate(`sw.param-error`, `参数错误`)
+      } else if (e[t] === 108) {
+        let n = O(e[t + 1]);
+        return this.translate(`sw.le-error`, `Le长度错误，实际长度是：${n}`, {
+          length: n
+        })
+      } else if (e[t] === 109) {
+        if (e[t + 1] === 0) return this.translate(`sw.cmd-unsupported`, `不支持的指令代码`)
+      } else if (e[t] === 110) {
+        if (e[t + 1] === 0) return this.translate(`sw.cla-error`, `不支持的类：CLA错误`)
+      } else if (e[t] === 111) {
+        if (e[t + 1] === 0) return this.translate(`sw.data-invalid`, `数据无效`)
+      } else if (e[t] === 147) switch (e[t + 1]) {
+        case 1:
+          return this.translate(`sw.insufficient-funds`, `资金不足`);
+        case 2:
+          return this.translate(`sw.mac-invalid`, `MAC无效`);
+        case 3:
+          return this.translate(`sw.app-locked-permanently`, `应用被永久锁定`)
+      } else if (e[t] === 148) switch (e[t + 1]) {
+        case 1:
+          return this.translate(`sw.insufficient-amount`, `交易金额不足`);
+        case 2:
+          return this.translate(`sw.trans-counter-reached-max`, `交易计数器达到最大值`);
+        case 3:
+          return this.translate(`sw.key-index-unsupported`, `密钥索引不支持`);
+        case 6:
+          return this.translate(`sw.mac-unavailable`, `所需MAC不可用`)
+      }
+      let n = k(e, t, t + 2, ``);
+      return this.translate(`sw.undefined-error`, `未定义的错误(${n})`, {
+        code: n
+      })
+    }
+    async GetEUICCChallenge() {
+      let e = v(g(await this.storeAndReadApdu(new Uint8Array([191, 46, 0]), `ES10b.GetEUICCChallenge`)), `80`);
+      if (e) return I.BASE64.encrypt(e);
+      throw Error(this.translate(`ble.failed-to-get-challenge`, `Challenge获取失败`))
+    }
+    async GetEUICCInfo1() {
+      return new we(await this.storeAndReadApdu(new Uint8Array([191, 32, 0]), `ES10b.GetEUICCInfo1`))
+    }
+    async GetEUICCInfo2() {
+      return this._counter = 0, new Te(await this.storeAndReadApdu(new Uint8Array([191, 34, 0]),
+        `ES10b.GetEUICCInfo2`))
+    }
+    async GetProfilesInfo(e) {
+      let t;
+      return e ? (typeof e == `string` && (e = A(e)), t = e[0] === 92 ? j([191, 45], e) : j([191, 45], j(160, j(79,
+          e)), new Uint8Array([92, 7, 90, 159, 112, 144, 145, 146, 149]))) : t = new Uint8Array([191, 45, 0]), this
+        ._counter = 0, new Le(await this.storeAndReadApdu(t, `ES10c.GetProfilesInfo`))
+    }
+    async GetEid() {
+      this._counter = 0;
+      let e = await this.storeAndReadApdu(new Uint8Array([191, 62, 3, 92, 1, 90]), `ES10c.GetEid`),
+        t = v(g(e), `BF3E`, `5A`);
+      if (t) return t;
+      throw Error(this.toSwErrorMsg(e))
+    }
+    async SetNickname(e, t) {
+      this._counter = 0;
+      let n = j([191, 41], j([90], A(D(e))), j([144], ne.encode(t))),
+        r = v(g(await this.storeAndReadApdu(n, `ES10c.SetNickname`)), `BF29`, `80`);
+      switch (r) {
+        case `00`:
+          return !0;
+        case `01`:
+          throw Error(this.translate(`ble.sim-not-exist`, `该卡号不存在[${e}]`, {
+            iccid: e
+          }));
+        default:
+          throw Error(this.translate(`ble.unknown-error`, `未知错误[${r}]`, {
+            result: r
+          }))
+      }
+    }
+    async EnableProfile(e) {
+      this._counter = 0;
+      let t = j([191, 49], j([160], j([90], A(D(e)))), new Uint8Array([129, 1, 0])),
+        n = v(g(await this.storeAndReadApdu(t, `ES10c.EnableProfile`)), `80`);
+      switch (n) {
+        case `00`:
+          return !0;
+        case `01`:
+          throw Error(this.translate(`ble.sim-not-exist`, `该卡号不存在[${e}]`, {
+            iccid: e
+          }));
+        case `02`:
+          return !0;
+        case `03`:
+          throw Error(this.translate(`ble.policy-not-allowed`, `策略不允许[${e}]`, {
+            iccid: e
+          }));
+        case `04`:
+          throw Error(this.translate(`ble.profile-error`, `配置文件错误[${e}]`, {
+            iccid: e
+          }));
+        case `05`:
+          throw Error(this.translate(`ble.sim-busy`, `卡片繁忙[${e}]`, {
+            iccid: e
+          }));
+        default:
+          throw Error(this.translate(`ble.unknown-error`, `未知错误[${n}]`, {
+            result: n
+          }))
+      }
+    }
+    async DisableProfile(e) {
+      this._counter = 0;
+      let t = j([191, 50], j([160], j([90], A(D(e)))), new Uint8Array([129, 1, 0])),
+        n = v(g(await this.storeAndReadApdu(t, `ES10c.DisableProfile`)), `80`);
+      switch (n) {
+        case `00`:
+          return !0;
+        case `01`:
+          throw Error(this.translate(`ble.sim-not-exist`, `该卡号不存在[${e}]`, {
+            iccid: e
+          }));
+        case `02`:
+          throw Error(this.translate(`ble.profile-enabled`, `该号码已启用[${e}]`, {
+            iccid: e
+          }));
+        case `03`:
+          throw Error(this.translate(`ble.policy-not-allowed`, `策略不允许[${e}]`, {
+            iccid: e
+          }));
+        case `04`:
+          throw Error(this.translate(`ble.profile-error`, `配置文件错误[${e}]`, {
+            iccid: e
+          }));
+        case `05`:
+          throw Error(this.translate(`ble.sim-busy`, `卡片繁忙[${e}]`, {
+            iccid: e
+          }));
+        default:
+          throw Error(this.translate(`ble.unknown-error`, `未知错误[${n}]`, {
+            result: n
+          }))
+      }
+    }
+    async DeleteProfile(e) {
+      this._counter = 0;
+      let t = j([191, 51], j([90], A(D(e)))),
+        n = v(g(await this.storeAndReadApdu(t, `ES10c.DeleteProfile`)), `80`);
+      switch (n) {
+        case `00`:
+          return !0;
+        case `01`:
+          throw Error(this.translate(`ble.sim-not-exist`, `该卡号不存在[${e}]`, {
+            iccid: e
+          }));
+        case `02`:
+          throw Error(this.translate(`ble.need-disable-profile`, `请先停用此号码[${e}]`, {
+            iccid: e
+          }));
+        case `03`:
+          throw Error(this.translate(`ble.policy-not-allowed`, `策略不允许[${e}]`, {
+            iccid: e
+          }));
+        default:
+          throw Error(this.translate(`ble.unknown-error`, `未知错误[${n}]`, {
+            result: n
+          }))
+      }
+    }
+    async ListNotification(e) {
+      this._counter = 0;
+      let t = e ? j([191, 40], j([129], Z.toBytes(e))) : new Uint8Array([191, 40, 0]);
+      return new Ee(await this.storeAndReadApdu(t, `ES10b.ListNotification`))
+    }
+    async RetrieveNotificationsList(e) {
+      this._counter = 0;
+      let t = e ? j([191, 43], j([160], j([128], A(e)))) : new Uint8Array([191, 43, 0]);
+      return new je(await this.storeAndReadApdu(t, `ES10b.RetrieveNotificationsList`))
+    }
+    async RemoveNotificationFromList(e) {
+      let t = j([191, 48], j([128], A(e))),
+        n = v(g(await this.storeAndReadApdu(t, `ES10b.RemoveNotificationFromList`)), `80`);
+      if (n === `01`) throw Error(this.translate(`ble.undelete-notification`, `没有删除任何通知`));
+      if (n !== `00`) throw Error(this.translate(`ble.unknown-error`, `未知错误[${n}]`, {
+        result: n
+      }))
+    }
+    async AuthenticateServer(e, t, n, r, i) {
+      let a = j([191, 56], I.BASE64.decryptAsBytes(e), I.BASE64.decryptAsBytes(t), I.BASE64.decryptAsBytes(n), I
+        .BASE64.decryptAsBytes(r), i ? j(160, j(128, ie(i)), A(`A108800435290611A100`)) : j(160, A(
+          `A108800435290611A100`)));
+      return new Me(await this.storeAndReadApdu(a, `ES10b.AuthenticateServer`))
+    }
+    async PrepareDownload(e, t, r, i) {
+      let a, o = I.BASE64.decryptAsBytes(e),
+        s = g(o);
+      if (v(s, `30`, `01`) === `FF` && n(i)) throw Error(this.translate(`ble.missing-confirm-code`, `缺少确认码`));
+      if (i) {
+        let e = v(s, `30`, `80`);
+        a = j([191, 33], o, I.BASE64.decryptAsBytes(t), j([4], this.hashedConfirmCode(e, i)), I.BASE64.decryptAsBytes(
+          r))
+      } else a = j([191, 33], o, I.BASE64.decryptAsBytes(t), I.BASE64.decryptAsBytes(r));
+      return new Ne(await this.storeAndReadApdu(a, `ES10b.PrepareDownload`))
+    }
+    async LoadBoundProfilePackage(e) {
+      let t = new Re(e).toBlocks(),
+        n, r, i = this.setting.is(`delay_over_counter`);
+      try {
+        this.setting.is(`delay_over_counter`, 20);
+        for (let e = 0; e < t.length; e++) {
+          if (n = `第 ${e+1} 块数据`, r = await this.storeApdu(A(t[e]), n), r[0] === 97) return new Oe(await this
+            .readApdu(r[1], n));
+          if (r[0] !== 144) throw this.print(t[e], n), Error(this.toSwErrorMsg(r))
+        }
+      } finally {
+        this.setting.is(`delay_over_counter`, i)
+      }
+      throw Error(this.translate(`ble.invalid-response`, `应答结果无效`))
+    }
+  },
+  He = class extends Ve {
+    client;
+    metadata;
+    constructor() {
+      super(), this.client = this.getClientInfo(), this.metadata = new Se
+    }
+    getClientInfo() {
+      let e = navigator.userAgent.toLowerCase(),
+        t = navigator.platform.toLowerCase();
+      return /iphone|ipod/.test(e) || /ipad/.test(t) && navigator.maxTouchPoints > 1 ? {
+        os: `IOS`,
+        isMobile: !0
+      } : /harmonyos/.test(e) ? {
+        os: `HarmonyOS`,
+        isMobile: !0
+      } : /android/.test(e) ? {
+        os: `Android`,
+        isMobile: !0
+      } : /mac/.test(e) ? {
+        os: `MacOS`,
+        isMobile: !1
+      } : /win/.test(e) ? {
+        os: `Windows`,
+        isMobile: !1
+      } : /linux/.test(e) ? {
+        os: `Linux`,
+        isMobile: !1
+      } : {
+        os: `Unknown`,
+        isMobile: !1
+      }
+    }
+    checkIsSupportedBLE() {
+      if (navigator.bluetooth) {
+        if (!this.client.isMobile) return Error(this.translate(`ble.not-supported`, this.print(`当前浏览器不支持WEB版BeeSIM`,
+          `蓝牙开启失败`, `error`)))
+      } else return this.client.os === `IOS` ? Error(this.translate(`ble.ios-not-supported`, this.print(
+        `请下载Bluefy应用打开此链接`, `蓝牙开启失败`, `error`))) : this.client.os === `Android` ? Error(this.translate(
+        `ble.android-not-supported`, this.print(`请下载Edge浏览器打开此链接`, `蓝牙开启失败`, `error`))) : Error(this.translate(
+        `ble.not-supported`, this.print(`当前浏览器不支持WEB版BeeSIM`, `蓝牙开启失败`, `error`)))
+    }
+    openBluetoothAdapter(e) {
+      return new Promise((t, n) => {
+        let r = this.checkIsSupportedBLE();
+        if (r) return n(r);
+        if (this.metadata.device) return this.createBLEConnection().then(t).catch(n);
+        e && this.setting.is(`services`, e);
+        let i = this.setting.is(`prefix`);
+        e = this.setting.is(`services`), navigator.bluetooth.requestDevice({
+          filters: [{
+            namePrefix: i
+          }],
+          optionalServices: e
+        }).then(e => {
+          this.metadata.device = e, this.createBLEConnection().then(t).catch(n)
+        }).catch(e => {
+          if (e instanceof Error) {
+            let t = e.message;
+            this.print(t, `蓝牙开启失败`, `error`), t.includes(`cancel`) ? n(Error(this.translate(
+              `ble.connection-canceled`, `已取消连接`))) : n(e)
+          } else this.print(e, `蓝牙开启失败`, `error`), n(Error(this.translate(`ble.connection-canceled`,
+            `已取消连接`)))
+        })
+      })
+    }
+    closeBluetoothAdapter() {
+      this.isConnected() && this.metadata.device.gatt.disconnect()
+    }
+    async initNotifyCharacteristic(e) {
+      let t = await e.startNotifications(),
+        n = e => {
+          let t = e.target.value;
+          t ? this.appendBytes(new Uint8Array(t.buffer)) : this.print(`无应答数据`, `APDU应答`, `warning`)
+        };
+      t.addEventListener(`characteristicvaluechanged`, n), this.on(`connected`, `reply`, e => {
+        e.connected ? this.print(`设备「${e.name}」已连接`, `设备状态变化`) : (this.interruptSend(), this.print(
+          `设备「${e.name}」已断开`, `设备状态变化`), t.removeEventListener(`characteristicvaluechanged`, n))
+      })
+    }
+    async initCharacteristic(e) {
+      this.metadata.write = void 0;
+      let t = 0;
+      for (let n of e) n.properties.writeWithoutResponse ? (t++, this.metadata.write = n, this.print(n.uuid,
+        `【写入】特征值`, `warning`)) : n.properties.notify ? (t++, this.print(`Notify: ${n.uuid}`, `【通知】特征值`, `warning`),
+        await this.initNotifyCharacteristic(n)) : this.print(`${n.uuid}[${JSON.stringify(n.properties)}]`,
+        `【不可用】特征值`, `warning`);
+      if (t < 2) throw Error(this.translate(`ble.characteristic-not-found`, `未发现蓝牙可用特征值`));
+      this.isInited(!1);
+      let {
+        name: n = `<unknown>`
+      } = this.metadata.device;
+      this.metadata.data(`name`, n), this.events.connected?.forEach(e => e(this.metadata))
+    }
+    async initBluetoothRemoteGATTServer(e) {
+      this.metadata.server = e;
+      try {
+        let t = await e.getPrimaryServices();
+        for (let e of t)
+          if (e.isPrimary) return await this.initCharacteristic(await e.getCharacteristics());
+        throw Error(this.translate(`ble.service-not-found`, `未找到BeeSIM主服务`))
+      } catch (e) {
+        let t = e.message;
+        if (t.startsWith(`ble`)) {
+          let e = t.split(`:`);
+          throw Error(this.translate(e[0], this.print(e[1], `连接失败`, `error`)))
+        } else throw this.print(e.message, `连接失败`, `error`), e
+      }
+    }
+    createBLEConnection() {
+      return new Promise((e, t) => {
+        if (this.metadata.device) {
+          let n = () => {
+            this.events.connected?.forEach(e => e(this.metadata)), this.metadata.device?.removeEventListener(
+              `gattserverdisconnected`, n), this.setting.is(`reconnectable`) || (this.metadata.device =
+              void 0), this.metadata.server = void 0, this.metadata.write = void 0
+          };
+          if (this.metadata.device.addEventListener(`gattserverdisconnected`, n), this.metadata.device.gatt) this
+            .showExecuting(this.translate(`loading.connect`, `连接中...`)), this.metadata.device.gatt.connected ?
+            this.initBluetoothRemoteGATTServer(this.metadata.device.gatt).then(e).catch(t).finally(() => this
+              .hideExecuting()) : this.metadata.device.gatt.connect().then(n => {
+              this.initBluetoothRemoteGATTServer(n).then(e).catch(t).finally(() => this.hideExecuting())
+            }).catch(e => {
+              this.print(e.message, `连接失败`, `error`), this.hideExecuting(), t(e)
+            });
+          else {
+            let e = this.metadata.device.name;
+            t(Error(this.translate(`ble.gatt-not-found`, this.print(`未找到${e}GATT服务`, `连接失败`, `error`), {
+              name: e
+            })))
+          }
+        } else t(Error(this.print(this.translate(`ble.device-not-found`, `未发现BeeSIM设备`), `连接失败`, `error`)))
+      })
+    }
+    closeBLEConnection() {
+      this.closeBluetoothAdapter()
+    }
+    translate(e, t, n) {
+      return t ? typeof t == `string` || typeof t == `number` ? c().global.t(e, t, {
+        named: n
+      }) : (n = t, c().global.t(e, n)) : c().global.t(e)
+    }
+    isConnected() {
+      return this.metadata.device?.gatt?.connected || !1
+    }
+    async reconnect() {
+      this.metadata.device ? await this.createBLEConnection() : await this.openBluetoothAdapter()
+    }
+    async writeBLECharacteristicValue(e) {
+      if (this.metadata.write) await this.metadata.write.writeValue(e);
+      else throw Error(this.translate(`ble.connect-beesim-first`, this.print(`请先连接BeeSIM设备`, `发送失败`, `error`)))
+    }
+    get protocol() {
+      return n(super.protocol) && this.params(`protocol`, `gsma/rsp/${this.metadata.data(`svn`)}`), super.protocol
+    }
+    async GetEUICCInfo1() {
+      let e = await super.GetEUICCInfo1();
+      return this.metadata.data(`svn`, e.toJson().svn), this.params(`protocol`, `gsma/rsp/${e.toJson().svn}`), e
+    }
+    async GetEUICCInfo2() {
+      let e = await super.GetEUICCInfo2();
+      return this.metadata.data(`svn`, e.toJson().svn), this.params(`protocol`, `gsma/rsp/${e.toJson().svn}`), e
+    }
+  },
+  $ = new class {
+    terminal;
+    _setting;
+    _loggers = [];
+    _task;
+    _taskbefore;
+    _wl;
+    _debug;
+    constructor() {
+      this._task = new Map, this.terminal = new He;
+      let e = {
+        prefix: `BeeSIM`,
+        delay_over_counter: 6,
+        enable_log: !1
+      };
+      this.terminal.setting.is(`services`).length === 0 && (e.services = [`0000ae30-0000-1000-8000-00805f9b34fb`]),
+        this.terminal.setting.values(e), this._setting = z.getObject(`BEESIM_SETTINGS`, {
+          pe_check_enable: !1,
+          filter_profile: !0
+        }), this.terminal.on(`connected`, `BeeSIM`, e => {
+          e.connected || setTimeout(() => this.executeTask(`reconnect`), 3e3)
+        }).on(`print`, `BeeSIM`, (e, t, n = `info`) => {
+          let r = {
+            content: e,
+            title: t,
+            type: n,
+            time: a(new Date, `yyyy-MM-dd HH:mm:ss.SSS`)
+          };
+          this._loggers.push(r), this._debug?.(r)
+        })
+    }
+    addTask(e, t) {
+      this._task.set(e, t), this.terminal.print(`添加任务【${e}】`, `BeeSIM任务`)
+    }
+    async executeTask(e, t) {
+      let n = this._task.get(e);
+      if (n) try {
+        this._taskbefore?.(), this.terminal.print(`执行任务【${e}】`, `BeeSIM任务`), await n(t), this.terminal.print(
+          `任务【${e}】执行完成`, `BeeSIM任务`)
+      } catch (e) {
+        this.terminal.print(e.message, `任务执行失败`)
+      } finally {
+        this._task.delete(e), this.terminal.print(`任务【${e}】已移除`, `BeeSIM任务`)
+      }
+    }
+    is(e, t) {
+      return o(t) ? this._setting[e] : (this._setting[e] !== t && (this._setting[e] = t, z.setObject(
+        `BEESIM_SETTINGS`, this._setting)), t)
+    }
+    onDebug(e) {
+      this._debug = e
+    }
+    offDebug() {
+      this._debug = void 0
+    }
+    getLogger(e = 20) {
+      return this._loggers.length <= e ? this._loggers : this._loggers.slice(this._loggers.length - e)
+    }
+    clearLogger() {
+      this._loggers = []
+    }
+    onPercentage(e, t) {
+      this.terminal.percentage = new xe(e, t), this.terminal.print(`开启进度监听任务：${JSON.stringify(t)}`, `进度监听`)
+    }
+    offPercentage() {
+      this.terminal.percentage = void 0, this.terminal.print(`关闭进度监听任务`, `进度监听`)
+    }
+    async reset() {
+      try {
+        await this.terminal.sendApdu(new Uint8Array([160, 63, 0, 0, 0]), `重置卡片`), this.terminal.print(`卡片【已重置】`,
+          `重置卡片`), this.addTask(`reconnect`, async () => {
+          try {
+            await this.terminal.reconnect()
+          } catch (e) {
+            this.terminal.print(e.message, `设备重连失败`)
+          }
+        });
+        let e = setTimeout(() => {
+          this._taskbefore = void 0, this._task.delete(`reconnect`), this.terminal.print(`超时未执行，重连任务已移除`,
+            `BeeSIM任务`)
+        }, 6e4);
+        this._taskbefore = () => {
+          clearTimeout(e), this._taskbefore = void 0
+        }
+      } catch (e) {
+        this.terminal.print(e.message, `重置卡片失败`)
+      } finally {
+        this.terminal.isInited(!1)
+      }
+    }
+    async checkFirmwareCRC() {
+      let e = await this.terminal.sendApdu(new Uint8Array([0, 0, 0, 0, 244, 1, 1]), `固件版本检查`);
+      if (e[0] === 16) return {
+        crc: this.terminal.metadata.data(`crc`, k(e.slice(49, 51), ``)),
+        totalRows: N(e, 51, 53),
+        currentRow: N(e, 53, 55)
+      };
+      throw Error(this.terminal.translate(`ble.check-crc-failed`, `固件版本检查失败`))
+    }
+    async downloadFirmware(e, t, n, r) {
+      let i = this.terminal.setting.is(`delay_over_counter`);
+      try {
+        let i, a, o = M(t);
+        this.keepScreenOn(!0), this.terminal.setting.is(`delay_over_counter`, 20), this.terminal.percentage?.adjust(n,
+          this.terminal.translate(`ble.upgrading-firmware`, 2, {
+            name: r
+          }));
+        for (let r = 0; r < e.length; r++, n++)
+          if (i = o + M(n) + e[r], a = await this.terminal.sendApdu(i, `第 ${n} 行`), a[0] !== 16 && a[3] !== 1)
+          throw Error(this.terminal.translate(`ble.upgrade-failed-progress`, {
+              progress: `${n}/${t}`
+            }));
+        await this.reset(), this.terminal.percentage?.success(this.terminal.translate(`ble.upgraded-to-latest`, {
+          name: r
+        }))
+      } catch (e) {
+        throw this.terminal.percentage?.error(e.message), e
+      } finally {
+        this.keepScreenOn(!1), this.terminal.setting.is(`delay_over_counter`, i)
+      }
+    }
+    async setTXPower(e = 1) {
+      await this.terminal.sendApdu(new Uint8Array([160, 62, e, 0, 0]), `设置蓝牙功率`)
+    }
+    async uploadLogger(e = `日志信息`) {
+      if (this._loggers.length > 0) try {
+        let t = this._loggers.map(({
+            time: e,
+            title: t,
+            content: n
+          }) => ({
+            time: e,
+            title: t,
+            content: n
+          })),
+          {
+            smdpAddress: n,
+            matchingId: r
+          } = this.terminal.params(),
+          {
+            eid: i,
+            firmware: a,
+            crc: o
+          } = this.terminal.metadata.data(),
+          s = this.terminal.metadata.name;
+        t[0].device = {
+          name: s,
+          firmware: a,
+          crc: o
+        }, t[0].client = {
+          app: B.version,
+          "User-Agent": navigator.userAgent
+        };
+        let c = await q(`save`, {
+          message: e,
+          eid: i,
+          smdpAddress: n,
+          matchingId: r,
+          content: JSON.stringify(t)
+        });
+        return c.status === 200 && (this._loggers = []), this.terminal.print(c.msg, `上传调试日志`, `warning`), !0
+      } catch (e) {
+        this.terminal.print(e.message, `上传调试日志`, `error`)
+      }
+      return !1
+    }
+    keepScreenOn(e) {
+      e ? navigator.wakeLock.request(`screen`).then(e => {
+        this._wl = e, e.addEventListener(`release`, () => this.terminal.print(`屏幕常亮【关闭】`, `保持屏幕亮屏`, `warning`))
+      }) : this._wl?.release()
+    }
+    clipboard(e) {
+      if (n(e)) V({
+        message: this.terminal.translate(`hint.missing-copy-content`, `缺少复制内容`)
+      });
+      else if (navigator.clipboard) navigator.clipboard.writeText(String(e)).then(() => V({
+        message: this.terminal.translate(`success.copy`, `复制成功`),
+        type: `success`
+      })).catch(() => V({
+        message: this.terminal.translate(`failed.copy`, `复制失败`),
+        type: `error`
+      }));
+      else {
+        let t = document.createElement(`textarea`);
+        t.value = String(e), t.style.position = `fixed`, t.style.top = `-9999px`, t.style.opacity = `0`, document.body
+          .appendChild(t), t.select(), t.setSelectionRange(0, t.value.length);
+        try {
+          document.execCommand(`copy`) ? V({
+            message: this.terminal.translate(`success.copy`, `复制成功`),
+            type: `success`
+          }) : V({
+            message: this.terminal.translate(`failed.copy`, `复制失败`),
+            type: `error`
+          })
+        } catch (e) {
+          V({
+            message: e.message
+          })
+        }
+        document.body.removeChild(t)
+      }
+    }
+    async start(e, t, n) {
+      this.terminal.params(`smdpAddress`, e).params(`matchingId`, t).params(`confirmationCode`, n);
+      let r = this.terminal.setting.is(`enable_log`);
+      try {
+        return this.keepScreenOn(!0), this.terminal.setting.is(`enable_log`, !0), await this.setTXPower(4), await this
+          .terminal.execute(), await this.setTXPower(1), this.uploadLogger(this.terminal.translate(
+            `ble.install-success`, `安装成功`)).catch(e => this.terminal.print(e.message, `上报失败`, `error`)), this.terminal
+          .getProfileMetadata()
+      } catch (e) {
+        throw this.uploadLogger(e.message).catch(e => this.terminal.print(e.message, `上报失败`, `error`)), e
+      } finally {
+        this.terminal.setting.is(`enable_log`, r), this.keepScreenOn(!1)
+      }
+    }
+    async init() {
+      if (this.terminal.metadata.isDiff) {
+        let e = await this.terminal.GetEid(),
+          {
+            crc: t
+          } = await this.checkFirmwareCRC();
+        this.terminal.metadata.data({
+          eid: e,
+          crc: t
+        })
+      } else {
+        let e = {},
+          t = 0;
+        n(this.terminal.metadata.data(`eid`)) && (e.eid = await this.terminal.GetEid(), t++), this.terminal.metadata
+          .data(`crc`) === `0000` && (e.crc = (await this.checkFirmwareCRC()).crc, t++), t > 0 && this.terminal
+          .metadata.data(e)
+      }
+      return this.terminal.metadata.data()
+    }
+  };
+
+function Ue(e, t, n = 1e3) {
+  let r = 0,
+    i = setInterval(() => {
+      r++, r <= t ? e(r) : clearInterval(i)
+    }, n);
+  return i
+}
+export {
+  g as S, oe as _, ge as a, I as b, he as c, U as d, H as f, le as g, B as h, q as i, G as l, V as m, $ as n, be as o,
+  W as p, _e as r, ye as s, Ue as t, pe as u, z as v, A as x, L as y
+};
