@@ -274,13 +274,15 @@ _REPLAYABLE_ES10_TAGS = {"BF20", "BF22", "BF2D", "BF2E", "BF28", "BF2B", "BF3E"}
 class BeeSim:
     def __init__(self, euicc: Euicc):
         self.e = euicc
-        self.svn = "2.2.2"
+        # 官方默认 metadata.svn 即 "v2.2.2"（带 v）；读取 EUICCInfo1/2 后由
+        # _parse_euicc_info 按官方 w() 格式化更新为带 v 的实际版本。
+        self.svn = "v2.2.2"
 
     @property
     def protocol(self):
-        # 与官方 Web JS 的 step1 保持一致：this.protocol = `gsma/rsp/${svn}`，不带 v。
-        # SGP.22 文本常写作 gsma/rsp/v<svn>，但官方网页实际发的是无 v 形式，
-        # 这里按网页对齐，避免 ES9+ 请求走与官方下载不同的服务端分支。
+        # 官方 Web v2.3.6：protocol = `gsma/rsp/${svn}`，而 svn 由版本格式化函数
+        # w(e)=`v`+bytes.join(`.`) 生成（带 v），故实际发送 gsma/rsp/v2.2.2。
+        # 这与 SGP.22 的 X-Admin-Protocol 头规范一致，代理 body 与直连头共用此值。
         return "gsma/rsp/" + self.svn
 
     async def _read(self, command: bytes):

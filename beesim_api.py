@@ -159,7 +159,7 @@ class BeeSIMClient:
 
     @property
     def protocol(self) -> str:
-        """当前协商出的 GSMA RSP 协议版本字符串（如 gsma/rsp/2.2.2，与官方网页一致）。"""
+        """当前协商出的 GSMA RSP 协议版本字符串（如 gsma/rsp/v2.2.2，与官方网页一致）。"""
         return str(self._sim.protocol)
 
     async def close(self) -> None:

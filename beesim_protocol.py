@@ -151,7 +151,10 @@ def _parse_euicc_info(raw, root):
         if tag not in fields:
             continue
         if tag in versions and isinstance(value, bytes):
-            result[fields[tag]] = ".".join(str(x) for x in value)
+            # 官方 Web v2.3.6 的版本格式化函数 w(e)=`v`+bytes.join(`.`) 给所有版本
+            # 字段（svn/profileVersion/euiccFirmwareVer/ts102241/globalplatform/ppVersion）
+            # 加 `v` 前缀，故 svn="v2.2.2"，protocol=gsma/rsp/v2.2.2（见 src-beautified/utils-v_n99D2T.js）。
+            result[fields[tag]] = "v" + ".".join(str(x) for x in value)
         elif tag == "84":
             resources = parse_tlv(value) if isinstance(value, bytes) else value
             result[fields[tag]] = {name: int.from_bytes(find_tag(resources, t) or b"\x00", "big")
@@ -174,8 +177,8 @@ _EUICC_INFO_FIELDS = {
         "Base eSIM Profile Package version the eUICC supports; it decides which profile format can be loaded."),
     "svn": (
         "SGP.22 规范版本", "SGP.22 specification version",
-        "卡片实现的 GSMA SGP.22 版本；程序据此协商 ES9+ 的 X-Admin-Protocol（gsma/rsp/<svn>）。",
-        "GSMA SGP.22 version implemented by the card; the client negotiates the ES9+ X-Admin-Protocol from it."),
+        "卡片实现的 GSMA SGP.22 版本（含 v 前缀，如 v2.2.2）；程序据此协商 ES9+ 的 protocol/X-Admin-Protocol（gsma/rsp/v2.2.2）。",
+        "GSMA SGP.22 version implemented by the card (with a v prefix, e.g. v2.2.2); the client negotiates the ES9+ protocol/X-Admin-Protocol from it (gsma/rsp/v2.2.2)."),
     "euiccFirmwareVer": (
         "芯片固件版本", "eUICC firmware version",
         "eUICC 芯片自身的固件版本，与 BeeSIM Web 网页版本号不是一回事。",

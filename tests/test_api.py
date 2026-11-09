@@ -15,15 +15,15 @@ from beesim_api import BeeSIMClient
 def make_client():
     ble = SimpleNamespace(address="AA:BB:CC:DD:EE:FF", disconnect=AsyncMock())
     sim = SimpleNamespace(
-        protocol="gsma/rsp/2.2.2",
+        protocol="gsma/rsp/v2.2.2",
         get_eid=AsyncMock(return_value="89049032000001000000296032006412"),
         get_profiles=AsyncMock(return_value=[
             {"iccid": "8901", "profileState": "ON", "profileNickname": "A", "profileSize": 20480},
             {"iccid": "8902", "profileState": "OFF", "profileNickname": "B"},
         ]),
-        get_euicc_info1=AsyncMock(return_value={"svn": "2.2.2"}),
+        get_euicc_info1=AsyncMock(return_value={"svn": "v2.2.2"}),
         get_euicc_info2=AsyncMock(return_value={
-            "svn": "2.2.2", "raw": "BF228202B4",
+            "svn": "v2.2.2", "raw": "BF228202B4",
             "extCardResource": {"installedApplication": 0,
                                 "freeNonVolatileMemory": 21217,
                                 "freeVolatileMemory": 5048}}),
@@ -54,7 +54,7 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertIs(opened, card)
             self.assertFalse(card.closed)
             self.assertEqual(card.address, "AA:BB:CC:DD:EE:FF")
-            self.assertEqual(card.protocol, "gsma/rsp/2.2.2")
+            self.assertEqual(card.protocol, "gsma/rsp/v2.2.2")
         self.assertTrue(card.closed)
         card._ble.disconnect.assert_awaited_once()
         await card.close()
@@ -70,7 +70,7 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
         card = make_client()
         self.assertEqual(await card.eid(), "89049032000001000000296032006412")
         self.assertEqual([p["iccid"] for p in await card.profiles()], ["8901", "8902"])
-        self.assertEqual((await card.info())["svn"], "2.2.2")
+        self.assertEqual((await card.info())["svn"], "v2.2.2")
         self.assertIn("SGP.22 规范版本", await card.info_explained("zh"))
         self.assertEqual(await card.notifications(), [{"index": "01"}])
         self.assertEqual(await card.retrieve_notification("01"), b"\xbf\x2b\x00")
