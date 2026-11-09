@@ -52,7 +52,9 @@ def der_len(n: int) -> bytes:
         return bytes([0x81, n])
     if n <= 0xFFFF:
         return bytes([0x82, (n >> 8) & 0xFF, n & 0xFF])
-    return bytes([0x83, (n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF])
+    if n <= 0xFFFFFF:
+        return bytes([0x83, (n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF])
+    raise ValueError("BER length exceeds 3-byte encoding (16 MiB)")
 
 
 def tlv(tag, *children: bytes) -> bytes:

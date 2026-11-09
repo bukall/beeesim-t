@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 import time
 
@@ -185,7 +186,7 @@ def build_app():
                    ("x", "delete"), ("n", "rename"), ("o", "download"), ("i", "info"),
                    ("m", "capacity"), ("N", "notifications"), ("t", "txpower"), ("a", "apdu"),
                    ("c", "disconnect"), ("l", "language"), ("q", "quit")]
-        BINDINGS = [Binding(key, action, "APDU" if action == "apdu" else translate(action, "zh")) for key, action in ACTIONS]
+        BINDINGS = [Binding(key, action) for key, action in ACTIONS]
         BUTTONS = ["scan", "refresh", "download", "enable", "disable", "delete", "rename", "txpower",
                    "reset", "info", "capacity", "notifications", "send_notification", "firmware",
                    "settings", "language", "disconnect"]
@@ -241,8 +242,16 @@ def build_app():
             self.title, self.sub_title = "BeeSIM", self.tr("subtitle")
             for name in self.BUTTONS:
                 self.query_one("#btn-" + name, Button).label = self.tr(name)
+            # Binding 是 frozen dataclass，且 App.bind() 向列表追加（Footer 取首个
+            # 绑定），故替换条目而非追加，避免英文界面残留中文描述与绑定不断累积。
             for key, action in self.ACTIONS:
-                self.bind(key, action, description="APDU" if action == "apdu" else self.tr(action))
+                description = "APDU" if action == "apdu" else self.tr(action)
+                existing = self._bindings.key_to_bindings.get(key)
+                if existing:
+                    self._bindings.key_to_bindings[key] = [replace(existing[0], description=description, show=True)]
+                else:
+                    self.bind(key, action, description=description)
+            self.refresh_bindings()
             self._render_profiles()
             self._render_status()
             self._render_rssi()
@@ -464,6 +473,7 @@ def build_app():
             def submit(seq):
                 try:
                     if not h2b(seq):
+                        self.log_line(self.tr("notification_seq_empty"))
                         return
                 except ValueError as exc:
                     self.log_line(str(exc))
@@ -481,7 +491,7 @@ def build_app():
                     if len(command) < 4:
                         raise ValueError("APDU")
                 except ValueError:
-                    self.log_line(self.tr("raw_apdu"))
+                    self.log_line(self.tr("raw_apdu_invalid"))
                     return
                 async def perform():
                     try:
@@ -519,7 +529,7 @@ def build_app():
                 return
             def submit(path):
                 try:
-                    content = parse_firmware_text(Path(path).expanduser().read_text())
+                    content = parse_firmware_text(Path(path).expanduser().read_text(encoding="utf-8"))
                 except (OSError, ValueError):
                     self.log_line(self.tr("firmware_invalid"))
                     return
@@ -532,7 +542,13 @@ def build_app():
                     resume = progress["crc"] == content["crc"] and progress["totalRows"] == len(content["rows"])
                     start = progress["currentRow"] + 1 if resume else 1
                     rows = content["rows"][start-1:]
-                    question = self.tr("firmware_resume", row=start) if resume else self.tr("firmware_question", name=Path(path).name, total=len(rows))
+                    if resume:
+                        question = self.tr("firmware_resume", row=start)
+                    else:
+                        question = self.tr("firmware_question", name=Path(path).name, total=len(rows))
+                        # 卡上存在不匹配的未完成进度时，从第 1 行全量覆盖属高危，明确警告。
+                        if progress["totalRows"] and progress["currentRow"] < progress["totalRows"]:
+                            question += "\n" + self.tr("firmware_overwrite_warning", row=progress["currentRow"], total=progress["totalRows"])
                     async def perform():
                         await self.sim.download_firmware(rows, len(content["rows"]), start, self.log_line)
                         self.log_line(self.tr("reset_sent"))

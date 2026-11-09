@@ -160,7 +160,7 @@ def _parse_euicc_info(raw, root):
             result[fields[tag]] = {name: int.from_bytes(find_tag(resources, t) or b"\x00", "big")
                                    for t, name in (("81", "installedApplication"), ("82", "freeNonVolatileMemory"), ("83", "freeVolatileMemory"))}
         elif tag == "0C":
-            result[fields[tag]] = value.decode("utf-8", "replace")
+            result[fields[tag]] = value.decode("utf-8", "replace") if isinstance(value, bytes) else _tlv_to_debug(value)
         else:
             result[fields[tag]] = _tlv_to_debug(value) if isinstance(value, list) else b2h(value)
     result["raw"] = b2h(raw)

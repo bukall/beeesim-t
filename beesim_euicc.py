@@ -191,7 +191,7 @@ class Euicc:
             self.inited = True
 
     # --- GET RESPONSE loop (port of readBytesFromEUICC) -----------------------
-    async def get_response(self, le: int, retries: int = 0) -> bytes:
+    async def get_response(self, le: int) -> bytes:
         async with self.transaction():
             return await self._get_response(le)
 

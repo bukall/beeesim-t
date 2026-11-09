@@ -47,6 +47,20 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(str(app.query_one("#btn-download", Button).label), "下载 eSIM")
             self.assertEqual(app.sub_title, "蓝牙 eUICC 管理工具")
 
+    async def test_bindings_localize_without_accumulating(self):
+        app = build_app()(language="en")
+        async with app.run_test(size=(110, 40)) as pilot:
+            await pilot.pause()
+            # 英文启动后 Footer 绑定描述应为英文，而非残留类级中文描述。
+            self.assertEqual(app.screen.active_bindings["s"].binding.description, "Scan & Connect")
+            count = len(app._bindings.key_to_bindings["s"])
+            app.action_language()
+            await pilot.pause()
+            await pilot.click("#lang-zh")
+            await pilot.pause()
+            self.assertEqual(app.screen.active_bindings["s"].binding.description, "扫描并连接")
+            self.assertEqual(len(app._bindings.key_to_bindings["s"]), count)   # 切换语言不累积绑定
+
     async def test_settings_show_detailed_hints_in_both_languages(self):
         for language, expected in (("zh", "ISO 7816-4"), ("en", "one-byte Lc")):
             with self.subTest(language=language):
@@ -87,7 +101,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             app.sim.delete_profile.assert_not_awaited()
 
     async def test_profile_switch_resets_euicc(self):
-        # 官方 Web 的 P()/F() 在 Enable/Disable 后复位；TUI 此前只打日志没有复位。
+        # 官方 Web 在 Enable/Disable 后复位；TUI 切换成功后同样复位 eUICC。
         app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(

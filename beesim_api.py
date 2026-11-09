@@ -368,7 +368,7 @@ class BeeSIMClient:
         并由倒数第二行提供 CRC。resume=True 时仅在 CRC 与总行数匹配后续传。
         """
         self._ensure_open()
-        firmware = parse_firmware_text(Path(path).expanduser().read_text())
+        firmware = parse_firmware_text(Path(path).expanduser().read_text(encoding="utf-8"))
         progress = await self._euicc.check_upgrading()
         rows = firmware["rows"]
         start = 1

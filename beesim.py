@@ -50,7 +50,7 @@ async def _run(args):
     gateway = DirectRSP() if args.rsp_transport == "direct" else WebAPI()
     if args.command == "web":
         import os
-        payload = json.loads(Path(args.data_file).read_text()) if args.data_file else {}
+        payload = json.loads(Path(args.data_file).read_text(encoding="utf-8")) if args.data_file else {}
         if not isinstance(payload, dict):
             raise ValueError("API payload must be a JSON object")
         result = await WebAPI(token=os.environ.get("BEESIM_TOKEN")).request(args.family, args.action, payload)
@@ -132,7 +132,7 @@ async def _run(args):
         elif args.command == "firmware-status":
             print(json.dumps(await euicc.check_upgrading(), indent=2))
         elif args.command == "firmware-write":
-            firmware = parse_firmware_text(Path(args.file).expanduser().read_text())
+            firmware = parse_firmware_text(Path(args.file).expanduser().read_text(encoding="utf-8"))
             progress = await euicc.check_upgrading()
             rows = firmware["rows"]
             start = 1

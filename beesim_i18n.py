@@ -77,11 +77,13 @@ TEXT = {
     "Scanning for BeeSIM…": ("正在扫描 BeeSIM…", "Scanning for BeeSIM…"),
     "download_ok": ("配置安装完成，通知已发送；请刷新并按需启用。", "Profile installed and notification sent. Refresh and enable it when needed."),
     "notification_seq": ("通知序号（十六进制，与列表中的 index 一致）", "Notification sequence (hexadecimal index from the list)"),
+    "notification_seq_empty": ("请输入通知序号（十六进制）。", "Enter a notification sequence (hexadecimal)."),
     "send_question": (
         "发送通知 {seq} 到其 DP+ 服务器？默认保留卡上的通知（不自动删除）。",
         "Send notification {seq} to its DP+ server? The notification is kept on the card by default."),
     "no_notifications": ("没有待处理通知。", "No pending notifications."),
     "raw_apdu": ("原始 APDU（十六进制）", "Raw APDU (hexadecimal)"),
+    "raw_apdu_invalid": ("APDU 格式无效：请输入至少 4 字节的十六进制指令。", "Invalid APDU: enter a hexadecimal command of at least 4 bytes."),
     "raw_question": ("原始指令可能修改芯片。确认发送以下 APDU？\n{apdu}", "A raw command may change the card. Send this APDU?\n{apdu}"),
     "store_max_lc": ("STORE DATA 块长（1–255 字节）", "STORE DATA block size (1–255 bytes)"),
     "reply_timeout": ("响应超时（秒）", "Response timeout (seconds)"),
@@ -128,6 +130,9 @@ TEXT = {
     "firmware_path": ("本地固件文本文件路径", "Local firmware text file path"),
     "firmware_question": ("确认刷写 {name}，共 {total} 行？刷写中请保持供电和蓝牙连接。", "Write {name}, {total} rows? Keep power and BLE connected throughout."),
     "firmware_resume": ("发现相同固件进度。是否从第 {row} 行续传？取消则不刷写。", "Matching firmware progress found. Resume at row {row}? Cancel leaves the card unchanged."),
+    "firmware_overwrite_warning": (
+        "警告：芯片上已有另一份未完成的固件进度（第 {row}/{total} 行）。继续将从第 1 行全量覆盖，可能使卡片不可用。",
+        "Warning: the card holds a different unfinished firmware progress (row {row}/{total}). Continuing overwrites from row 1 and may brick the card."),
     "firmware_current": ("芯片已经是该固件版本。", "The card already has this firmware version."),
     "firmware_invalid": ("固件文件无效或缺少版本行。", "Invalid firmware file or missing version row."),
     "connect_error": ("连接错误", "Connection error"),
