@@ -23,8 +23,8 @@ eUICC 会话层：Euicc（APDU / 逻辑通道）与 BeeSim（ES10 命令集）�
 * 空 9000（卡片下一分段未就绪）最多重发 3 次，否则会返回半截 TLV。
 * 只读 ES10 命令（_REPLAYABLE_ES10_TAGS 白名单）在响应 TLV 不完整时自动重读
   最多 3 次；写命令与下载流程绝不重放，避免重复执行。
-* 节流：累计 N 条 APDU 后暂停 1.2s（GET RESPONSE 0xC0 与 0xFE 不计数）；
-  下载配置包 / 刷固件时临时提高到 20。
+* 节流：累计 N 条 APDU 后暂停 1.2s（GET RESPONSE 0xC0 与 0xFE 仍计数但不触发停顿，
+  与官方一致）；下载配置包 / 刷固件时临时提高到 20。
 * 发送通知成功后**默认保留**卡上通知（官方 Web 总会删除）；调用方可用
   ``delete_after=True`` 显式删除，不分通知类型——有意差异见
   ``web-api-reference.json``。

@@ -77,11 +77,12 @@ ISDR_AID = bytes.fromhex("A0000005591010FFFFFFFF8900000100")
 #   Web 2.3.6 fixes channel 1; this client allows 1..3 for compatibility.
 #
 # delay_over_counter = 6
-#   Throttle: after this many APDUs (GET RESPONSE 0xC0 and 0xFE are excluded)
-#   the client sleeps 1.2 s so the card can catch up, then resets the counter.
-#   Web 2.3.6 uses 6 for application commands and 20 for BPP/firmware
-#   writes; load_bound_profile_package()/download_firmware() temporarily set
-#   the latter. 0 disables throttling.
+#   Throttle: after this many APDUs the client sleeps 1.2 s so the card can
+#   catch up, then resets the counter. GET RESPONSE (0xC0) and 0xFE still
+#   increment the counter but never trigger the sleep themselves (matches the
+#   official Web). Web 2.3.6 uses 6 for application commands and 20 for
+#   BPP/firmware writes; load_bound_profile_package()/download_firmware()
+#   temporarily set the latter. 0 disables throttling.
 # --------------------------------------------------------------------------- #
 STORE_MAX_LC = 120          # Web 2.3.6 default; distinct from 18-byte BLE groups
 GROUP_PAYLOAD = 18          # bytes of APDU per BLE packet          (groupValue)
@@ -336,6 +337,8 @@ def capacity_data(info: dict, profiles: Optional[List[dict]] = None) -> dict:
       usedPercentApprox                  近似已用占比（%）
       source                             卡字段来源说明
     未能统计时（无任何 profileSize），installed/total/used 相关字段为 None。
+    当仅部分配置报告 profileSize 时，installedBytes 是下界，usedPercentApprox
+    会被**低估**（真实已用占比更高），totalBytesApprox 同样偏小。
     """
     resource = info.get("extCardResource")
     if not isinstance(resource, dict):
@@ -422,7 +425,9 @@ def describe_capacity(data: dict, language: str = "zh") -> str:
         lines.append("  " + ("近似总容量: 无法计算（卡未报告 profileSize）" if zh
                             else "Approx. total capacity: unavailable (card reports no profileSize)"))
     lines.append("  " + ("说明: 卡片协议不含总容量字段；近似总容量 = 各配置 profileSize 之和 + 剩余可用容量，不含系统开销。"
-                        if zh else "Note: the protocol has no total-capacity field; the approximation sums profileSize plus free memory and excludes system overhead."))
+                        "若仅部分配置报告大小，已安装合计与已用占比均为下界（实际更高）。"
+                        if zh else "Note: the protocol has no total-capacity field; the approximation sums profileSize plus free memory and excludes system overhead. "
+                        "If only some profiles report a size, the installed total and used percentage are lower bounds."))
     return "\n".join(lines)
 
 

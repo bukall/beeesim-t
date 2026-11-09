@@ -1,13 +1,14 @@
 # beeesim-t
 
 用蓝牙管理 **BeeSIM eUICC 卡（eSIM）** 的 Python 工具 —— 命令行、中英双语终端界面、
-以及可编程调用的异步 API。配置管理完全走蓝牙；只有**下载新 eSIM** 时才需要联网
-（连运营商的 SM-DP+，默认走 BeeSIM 官方代理）。
+以及可编程调用的异步 API。日常配置管理完全走蓝牙；**下载新 eSIM、发送通知到 SM-DP+、
+查询固件版本与 `web` 子命令**需要联网（默认走 BeeSIM 官方代理）。
 
 A Python BLE controller for **BeeSIM eUICC cards** (eSIM) — CLI, bilingual
-terminal UI, and a programmable async API. Profile management runs entirely over
-Bluetooth; downloading a new eSIM is the only thing that also talks HTTPS (to the
-operator's SM-DP+, through the official BeeSIM proxy by default).
+terminal UI, and a programmable async API. Day-to-day profile management runs
+entirely over Bluetooth; downloading a new eSIM, sending notifications to the
+SM-DP+, querying firmware versions and the `web` subcommand also talk HTTPS
+(through the official BeeSIM proxy by default).
 
 本项目基于 [cyyself/beeesim-api](https://github.com/cyyself/beeesim-api) 二次开发，
 保留其 BLE/eUICC 协议逆向成果与 Git 历史；实现对齐官方 **BeeSIM Web v2.3.6**，
@@ -44,7 +45,9 @@ operator's SM-DP+, through the official BeeSIM proxy by default).
 | `beesim_web.py` | BeeSIM Web 2.3.6 HTTP API、签名、可选直连 RSP |
 | `beesim_tui.py`, `beesim_i18n.py` | 双语 Textual 界面与文案 |
 
-`assets/` 与 `src/` 是官方网页（v2.1.4）的历史快照，作为逆向依据保留，**不参与运行**；
+`src/` 是官方网页 **BeeSIM Web v2.3.6** 的原始 JS 快照（21 个 chunk，抓取自
+<https://beeesim.com/ble/>，哈希与 `web-api-reference.json` 一致）；`src-beautified/`
+是其 js-beautify 反混淆可读版，便于核对。二者作为逆向依据保留，**不参与运行**。
 `web-api-reference.json` 记录 v2.3.6 的源哈希、接口合约与有意差异。
 
 ## Install
@@ -138,7 +141,7 @@ ISO 7816-4 与 GSMA SGP.22。
 | `store_max_lc` | 120 | 单条 STORE DATA（`81 E2`）的数据字节数；ISO 7816-4 短 APDU 的 Lc 只有 1 字节，故范围 1–255。越小分块越多、单条越短。 |
 | `timeout` | 30 秒 | 等待卡片经 BLE notify 返回 APDU 响应的最长时间。超时后传输层会使会话失效，必须重新连接再发命令。 |
 | `channel` | 1 | ISO 7816-4 补充逻辑通道（MANAGE CHANNEL，`INS=70`）；ES10 的 CLA = `0x80 \| 通道号`。Web 2.3.6 固定通道 1，仅当卡片拒绝时才试 2/3。 |
-| `delay_over_counter` | 6 | 连续发送多少条 APDU 后暂停 1.2 秒，给卡片留处理时间。`GET RESPONSE`（`0xC0`）与 `0xFE` 不计数；下载配置包/刷固件时提高到 20。0 关闭节流。 |
+| `delay_over_counter` | 6 | 连续发送多少条 APDU 后暂停 1.2 秒，给卡片留处理时间。`GET RESPONSE`（`0xC0`）与 `0xFE` 不会*触发*停顿（但仍计入计数器，与官方一致）；下载配置包/刷固件时提高到 20。0 关闭节流。 |
 
 ## Capacity
 
@@ -225,7 +228,7 @@ python beesim.py txpower 0
 
 来源：官方网页 LPA `https://beeesim.com/ble/`（Vue 3 SPA，构建串 *"BeeSIM Web v2.3.6"*），
 通过下载并反混淆其 JS chunk 还原。卡片是可通过蓝牙访问的 **GSMA SGP.22 eUICC**。
-逆向依据见 `src/`（v2.1.4 快照）与 `web-api-reference.json`（v2.3.6 哈希与合约）。
+逆向依据见 `src/`（v2.3.6 原始 JS 快照）、`src-beautified/`（反混淆可读版）与 `web-api-reference.json`（v2.3.6 哈希与合约）。
 
 > 取 JS 的诀窍：CDN 只在请求带 `Accept-Encoding: gzip` 时返回 JS（nginx `gzip_static`，
 > 普通请求会 404），用 `curl --compressed` 即可。
@@ -289,7 +292,7 @@ APDU，`skip_pin` 开关写入后从未被读取。详见上面的安全警告�
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v      # 73 项，不需要蓝牙/硬件
+python -m unittest discover -s tests -v      # 82 项，不需要蓝牙/硬件
 ```
 
 覆盖 TLV 编解码、APDU 会话、传输分帧、ES10 解析、下载流程、对外 API、HTTP 合约

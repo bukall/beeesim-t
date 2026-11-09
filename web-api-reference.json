@@ -2,22 +2,26 @@
   "version": "BeeSIM Web v2.3.6",
   "source": "https://beeesim.com/ble/",
   "fetched_at_utc": "2026-10-21T02:53:38.756743+00:00",
+  "reverified_at_utc": "2026-11-09",
+  "snapshot_note": "Live site re-fetched and confirmed still v2.3.6 (index/pages/utils SHA256 unchanged). The complete 21-chunk raw snapshot is stored in src/ and a js-beautify readable copy in src-beautified/; neither participates at runtime. The earlier v2.1.4 src/ and the broken assets/ (7 nginx-404 chunks) were removed.",
+  "protocol_format": "ES9+ protocol = gsma/rsp/<svn>, where svn is formatted by the official w(e)='v'+bytes.join('.') (e.g. svn='v2.2.2' -> protocol='gsma/rsp/v2.2.2'). Used for both the proxy JSON body field and the DirectRSP X-Admin-Protocol header.",
   "sources": {
-    "assets/index-DrmplIO0.js": {
+    "src/index-DrmplIO0.js": {
       "bytes": 5845,
       "sha256": "f4c8d07581d542c9fd6b79d6df4bfe8765e694dd20ee1661a0d5f0d5e2be9f2b"
     },
-    "assets/pages-BKD8U7NR.js": {
+    "src/pages-BKD8U7NR.js": {
       "bytes": 44775,
       "sha256": "a9dd0f219471967bb605dedcbd2bde947433b96f418a819b91029709a03ea56e"
     },
-    "assets/utils-v_n99D2T.js": {
+    "src/utils-v_n99D2T.js": {
       "bytes": 64969,
       "sha256": "b95a4aeb4169f146933bac706b071d26921788e9e2f57b8152793d9a0a6fccbb"
     },
     "index.html": {
       "bytes": 681,
-      "sha256": "09e43a9a622500855216c97bdb3d6fadb07c5372a5fe3e589d0fffb564aa67ab"
+      "sha256": "09e43a9a622500855216c97bdb3d6fadb07c5372a5fe3e589d0fffb564aa67ab",
+      "note": "entry page; hash recorded, not stored in repo"
     }
   },
   "defaults": {
@@ -143,7 +147,8 @@
     "No automatic upload of diagnostic logs.",
     "Direct RSP mode remains optional; default is the official Web proxy.",
     "BLE channel encoding is limited to channels 1..3.",
-    "After a successful notification send the card notification is kept by default; the explicit delete_after option removes it (the Web bundle always removes it).",
+    "After a successful manual notification send the card notification is kept by default; the explicit delete_after option removes it by the parsed notification index (the Web bundle always removes it).",
+    "On download notification-delivery failure Python raises a clear 'notification pending' error and keeps the notification for retry; Web v2.3.6 also propagates the failure (v2.1.4 swallowed it). The download flow removes the installation notification only on install success, matching v2.3.6 HandleNotification.",
     "EnableProfile result code 02 is treated as success; the Web bundle reports it as an error.",
     "Read-only ES10 commands are replayed when the card returns an incomplete chained response."
   ]

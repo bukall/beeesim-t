@@ -199,18 +199,20 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(get_euicc_info2=AsyncMock(
-            return_value={"svn": "2.2.2", "euiccFirmwareVer": "1.3.6", "raw": "BF22"}))
+            return_value={"svn": "v2.2.2", "euiccFirmwareVer": "v1.3.6", "raw": "BF22"}))
         app.euicc = SimpleNamespace(t=SimpleNamespace(_closed=False))
         async with app.run_test(size=(110, 40)) as pilot:
             app.action_info()
             await pilot.pause()
             await app.workers.wait_for_complete()
+            await pilot.pause()   # 让 worker 推送的 InfoScreen 完成布局
             self.assertEqual(app.screen.__class__.__name__, "InfoScreen")
-            self.assertIn('"svn": "2.2.2"',
+            self.assertIn('"svn": "v2.2.2"',
                           str(app.screen.query_one("#info-raw", Static).render()))
             self.assertIn("SGP.22 规范版本",
                          str(app.screen.query_one("#info-explain", Static).render()))
-            await pilot.click("#ok")
+            # Button.press() 不依赖坐标，避免无头环境下布局未刷新时 click 落空（flaky）。
+            app.screen.query_one("#ok", Button).press()
             await pilot.pause()
             self.assertNotEqual(app.screen.__class__.__name__, "InfoScreen")
 

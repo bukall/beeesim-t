@@ -210,7 +210,11 @@ class BeeSIMClient:
         return dict(await self._sim.get_euicc_info2())
 
     async def info(self) -> dict:
-        """``euicc_info2()`` 的别名，对应 CLI 的 ``info`` / TUI 的 ``i``。"""
+        """``euicc_info2()`` 的别名，仅返回 EUICCInfo2（TUI 的 ``i`` 弹窗即此数据）。
+
+        注意 CLI 的 ``info`` 命令还会打印 EID 与 EUICCInfo1；如需等价输出，请另行
+        调用 ``eid()`` 与 ``euicc_info1()``。
+        """
         return await self.euicc_info2()
 
     async def info_explained(self, language: str = "zh") -> str:

@@ -119,11 +119,11 @@ TEXT = {
         "Web 2.3.6 uses channel 1; try 2 or 3 only if the card rejects it."),
     "hint_delay_counter": (
         "连续发送多少条 APDU 后暂停 1.2 秒，给卡片留出处理时间。\n"
-        "官方 Web 2.3.6 应用命令阈值 6；GET RESPONSE(0xC0) 与 0xFE 不计数；"
+        "官方 Web 2.3.6 应用命令阈值 6；GET RESPONSE(0xC0) 与 0xFE 不触发停顿（但仍计数）；"
         "下载配置包与刷固件时程序会临时提高到 20。\n设为 0 关闭节流。",
         "Number of APDUs after which the client pauses 1.2 s to let the card catch up.\n"
-        "Web 2.3.6 uses 6 for application commands; GET RESPONSE (0xC0) and 0xFE are not "
-        "counted; profile-package and firmware writes temporarily raise it to 20.\n"
+        "Web 2.3.6 uses 6 for application commands; GET RESPONSE (0xC0) and 0xFE never "
+        "trigger the pause (but still count); profile-package and firmware writes temporarily raise it to 20.\n"
         "Set 0 to disable throttling."),
     "settings_saved": ("设置已保存，下次连接时生效。", "Settings saved; applied on the next connection."),
     "settings_invalid": ("请输入有效的块长、超时、通道和节流阈值。", "Enter valid block size, timeout, channel and throttle values."),
