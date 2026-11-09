@@ -134,9 +134,18 @@ class Euicc:
             raise RuntimeError("Set TX power failed: " + b2h(r))
 
     async def reset(self):
-        """A0 3F 00 00 00 — soft reset of the eUICC (re-does ATR/refresh)."""
+        """A0 3F 00 00 00 — soft reset of the eUICC (re-does ATR/refresh).
+
+        Best-effort: the card often drops BLE or stops answering while resetting,
+        so a failure is logged and swallowed rather than propagated — the official
+        Web reset() likewise wraps the send in try/catch and only marks the session
+        uninitialized in finally. Propagating here would misreport an already
+        successful enable/disable/firmware-write as failed.
+        """
         try:
             await self.send_command(bytes([0xA0, 0x3F, 0x00, 0x00, 0x00]), reinit_on_6881=False)
+        except Exception as exc:
+            self._log("reset failed (ignored; reconnect if needed):", exc)
         finally:
             self.inited = False
 

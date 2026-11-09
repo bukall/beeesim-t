@@ -144,6 +144,17 @@ class InitializationTests(unittest.IsolatedAsyncioTestCase):
         reads = [x for x in e.t.commands if x[1] == 0xC0]
         self.assertEqual(len(reads), 3)
 
+    async def test_reset_is_best_effort_and_marks_uninitialized(self):
+        # 官方 Web reset() 吞掉异常（卡片复位时常断开 BLE）；Python 同样尽力而为，
+        # 避免把已成功的启用/停用/刷固件误报为失败，但仍标记会话未初始化。
+        class FailingTransport:
+            async def send(self, command):
+                raise ConnectionError("BLE disconnected")
+        e = Euicc(FailingTransport(), delay_over_counter=0)
+        e.inited = True
+        await e.reset()                      # must not propagate
+        self.assertFalse(e.inited)
+
 
 class InfoExplanationTests(unittest.TestCase):
     def test_chinese_explanation_covers_parsed_fields_and_raw(self):

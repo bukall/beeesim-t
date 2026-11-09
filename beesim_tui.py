@@ -350,12 +350,15 @@ def build_app():
             if self._guard() and (iccid := self._selected()):
                 async def perform():
                     await getattr(self.sim, action + "_profile")(iccid)
-                    # 官方 Web 的 P()/F() 在 Enable/Disable 后都跟一次 reset。
-                    # 此前 TUI 只打了「复位」日志却没有真正复位，这里补齐；
-                    # CLI 与 BeeSIMClient.enable/disable(reset=True) 早已如此。
-                    await self.euicc.reset()
+                    # 官方 Web 在 Enable/Disable 后跟一次 reset。切换已成功，先记录成功；
+                    # reset 尽力而为，随后刷新——若复位导致蓝牙断开，刷新失败仅记日志，
+                    # 不把已成功的切换误报为失败（重连后可再刷新）。
                     self.log_line(self.tr("apply_reset"))
-                    await self._load_profiles()
+                    await self.euicc.reset()
+                    try:
+                        await self._load_profiles()
+                    except Exception as exc:
+                        self.log_line(self.tr("failed", action=self.tr("refresh"), error=translate_error(exc, self.language)))
                 self._start(action, perform)
 
         def action_enable(self):

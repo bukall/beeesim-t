@@ -147,12 +147,18 @@ class WebAPI:
 
 
 class DirectRSP:
-    """Optional direct transport, sharing the same async execute interface."""
+    """Optional direct transport, sharing the same async execute interface.
+
+    TLS certificates are verified with the default urllib SSL context, matching
+    the browser and the official WebAPI proxy path. GSMA payload signatures
+    additionally protect the profile package, but transport verification is still
+    required to keep activation codes / matching IDs / confirmation-code hashes
+    confidential and to prevent tampering or denial of service. SM-DP+ servers
+    use publicly trusted certificates; a private test CA must be added to the
+    system trust store rather than disabling verification.
+    """
     async def execute(self, action, smdp, protocol, fields):
         def perform():
-            # Existing direct mode uses GSMA payload authentication; proxy HTTPS
-            # remains verified. This behavior is explicit and limited to direct RSP.
-            import ssl
             payload = dict(fields)
             if action == "initiateAuthentication":
                 payload["smdpAddress"] = smdp
@@ -161,7 +167,7 @@ class DirectRSP:
                 data=json.dumps(payload, separators=(",", ":")).encode(), method="POST",
                 headers={"Content-Type": "application/json", "Accept": "application/json",
                          "X-Admin-Protocol": protocol, "User-Agent": "gsma-rsp-lpad"})
-            with urllib.request.urlopen(request, timeout=40, context=ssl._create_unverified_context()) as response:
+            with urllib.request.urlopen(request, timeout=40) as response:
                 result = json.load(response)
             status = (result.get("header") or {}).get("functionExecutionStatus") or {}
             if status.get("status") not in (None, "Executed-Success"):
