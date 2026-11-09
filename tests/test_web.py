@@ -127,3 +127,10 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
             await download_profile(sim, e, "rsp.example.com", gateway=gateway, log=lambda _: None)
         self.assertEqual(gateway.execute.call_args.args[0], "handleNotification")
         sim.remove_notification.assert_not_awaited()
+
+    async def test_missing_es9_field_raises_clear_error(self):
+        e, sim, gateway = self.make_download()
+        gateway.execute.side_effect = [{"transactionId": "1234"}]   # 缺 serverSigned1 等字段
+        with self.assertRaisesRegex(RuntimeError, "missing field"):
+            await download_profile(sim, e, "rsp.example.com", gateway=gateway, log=lambda _: None)
+        self.assertEqual(e.set_tx_power.call_args_list[-1].args, (1,))   # 仍恢复功率

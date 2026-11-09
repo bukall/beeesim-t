@@ -110,6 +110,8 @@ async def connect_card(
     ----
     本函数只建立 BLE 会话，不会读取 EID/配置，也不会改动卡片状态。
     """
+    if not 0 < timeout <= 300 or not 0 <= delay_over_counter <= 1000:
+        raise ValueError("Invalid timeout or throttle threshold")
     ble_client, sim, euicc = await connect(
         address,
         debug=debug,
@@ -118,7 +120,8 @@ async def connect_card(
         channel=channel,
         delay_over_counter=delay_over_counter,
     )
-    return BeeSIMClient(ble_client, sim, euicc, gateway=gateway)
+    # 共享一个网关实例（而非每次调用各自新建），以便复用 token / base_url。
+    return BeeSIMClient(ble_client, sim, euicc, gateway=gateway if gateway is not None else WebAPI())
 
 
 class BeeSIMClient:
@@ -149,8 +152,11 @@ class BeeSIMClient:
 
     @property
     def closed(self) -> bool:
-        """连接是否已关闭。"""
-        return self._closed
+        """连接是否已关闭：显式 close()，或底层 BLE 超时/断连使会话失效。"""
+        if self._closed:
+            return True
+        transport = getattr(self._euicc, "t", None)
+        return bool(getattr(transport, "closed", False))
 
     @property
     def address(self) -> str:
@@ -371,10 +377,10 @@ class BeeSIMClient:
                 raise ValueError("Firmware progress does not match this file")
             start = progress["currentRow"] + 1
         if start > len(rows):
-            return {"status": "already-complete", "totalRows": len(rows)}
+            return {"status": "already-complete", "start": start, "rows": 0, "totalRows": len(rows)}
         pending = rows[start - 1:]
         await self._sim.download_firmware(pending, len(rows), start, log or _QUIET)
-        return {"status": "written", "start": start, "rows": len(pending)}
+        return {"status": "written", "start": start, "rows": len(pending), "totalRows": len(rows)}
 
     # --- 下载安装 -----------------------------------------------------------
     async def download(self, activation_code: str, *, confirm_code: Optional[str] = None,

@@ -66,6 +66,12 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "closed"):
             await card.eid()
 
+    async def test_closed_reflects_transport_invalidation(self):
+        card = make_client()
+        self.assertFalse(card.closed)
+        card._euicc.t = SimpleNamespace(closed=True)   # 超时/断连使传输层失效
+        self.assertTrue(card.closed)
+
     async def test_read_methods_delegate_and_return_plain_data(self):
         card = make_client()
         self.assertEqual(await card.eid(), "89049032000001000000296032006412")

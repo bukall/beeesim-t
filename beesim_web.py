@@ -81,7 +81,7 @@ class WebAPI:
             if result.get("status") == 401:
                 self.token = None
             # Do not echo server messages that may contain account/activation data.
-            raise RuntimeError(f"BeeSIM {family}/{action}: status {result.get('status')}, {result.get('i18n', 'request-failed')}")
+            raise RuntimeError(f"BeeSIM {family}/{action}: status {result.get('status')} (request failed)")
         return result
 
     async def request(self, family, action, payload):

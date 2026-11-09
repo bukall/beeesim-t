@@ -38,6 +38,12 @@ from beesim_protocol import (
 from beesim_tlv import b2h, h2b
 from beesim_transport import BleakScanner, connect
 
+try:  # bleak is optional; BleakError is not an OSError subclass, so catch it explicitly
+    from bleak.exc import BleakError
+    _BLE_ERRORS: tuple = (BleakError,)
+except ImportError:  # pragma: no cover
+    _BLE_ERRORS = ()
+
 
 async def _run(args):
     from beesim_web import DirectRSP, WebAPI
@@ -93,15 +99,19 @@ async def _run(args):
             profiles = await sim.get_profiles(args.selector)
             print(json.dumps(profiles, indent=2, ensure_ascii=False))
         elif args.command == "enable":
-            print("OK" if await sim.enable_profile(args.iccid) else "FAILED")
+            await sim.enable_profile(args.iccid)   # True 或抛异常；失败由 main 统一报错
             await euicc.reset()
+            print("OK")
         elif args.command == "disable":
-            print("OK" if await sim.disable_profile(args.iccid) else "FAILED")
+            await sim.disable_profile(args.iccid)
             await euicc.reset()
+            print("OK")
         elif args.command == "delete":
-            print("OK" if await sim.delete_profile(args.iccid) else "FAILED")
+            await sim.delete_profile(args.iccid)
+            print("OK")
         elif args.command == "rename":
-            print("OK" if await sim.set_nickname(args.iccid, args.nickname) else "FAILED")
+            await sim.set_nickname(args.iccid, args.nickname)
+            print("OK")
         elif args.command == "reset":
             await euicc.reset()
             print("reset sent")
@@ -135,8 +145,10 @@ async def _run(args):
             else:
                 await sim.download_firmware(rows[start-1:], len(rows), start)
         elif args.command == "apdu":
-            resp = await euicc.send_command(h2b(args.hex), reinit_on_6881=False)
-            print(b2h(resp))
+            try:
+                print(b2h(await euicc.send_command(h2b(args.hex), reinit_on_6881=False)))
+            finally:
+                euicc.inited = False   # 与 BeeSIMClient.raw_apdu / TUI 一致：原始指令后会话失效
         elif args.command == "download":
             smdp, matching_id, embedded_cc = parse_activation_code(args.code)
             # 确认码是否必填由 PrepareDownload（服务端 tag 01 === FF）判定；
@@ -212,7 +224,7 @@ def main():
     sp.add_argument("code", help="LPA:1$smdp$matchingId  (or a bare 1$smdp$matchingId)")
     sp.add_argument("--confirm-code", dest="confirm_code")
     args = p.parse_args()
-    if not 0 < args.timeout <= 300 or not 1 <= args.store_max_lc <= 255 or args.delay_over_counter < 0:
+    if not 0 < args.timeout <= 300 or not 1 <= args.store_max_lc <= 255 or not 0 <= args.delay_over_counter <= 1000:
         p.error("Invalid timeout, STORE DATA size or throttle threshold")
     if args.command == "firmware-write" and not args.yes:
         p.error("Firmware writing requires --yes")
@@ -228,7 +240,7 @@ def main():
     else:
         try:
             asyncio.run(_run(args))
-        except (RuntimeError, ValueError, OSError) as exc:
+        except (RuntimeError, ValueError, OSError, KeyError, IndexError, TypeError) + _BLE_ERRORS as exc:
             print(f"Error: {exc or type(exc).__name__}", file=sys.stderr)
             raise SystemExit(1) from None
 

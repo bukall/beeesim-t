@@ -64,6 +64,11 @@ class BeeSimTransport:
         self._total = 0
         self._closed = False
 
+    @property
+    def closed(self) -> bool:
+        """True once the session is invalidated (timeout/disconnect); reconnect required."""
+        return self._closed
+
     def disconnected(self, _client=None):
         self._closed = True
         if self._future and not self._future.done():

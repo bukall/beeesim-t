@@ -252,7 +252,7 @@ def _format_info_value(value, limit=300) -> str:
 
 def describe_euicc_info(info: dict, language: str = "zh", title: Optional[str] = None) -> str:
     """Explain EUICCInfo1/EUICCInfo2 in Chinese (or English) alongside the raw JSON."""
-    zh = language != "en"
+    zh = language == "zh"
     heading = title or ("芯片信息" if zh else "eUICC information")
     lines = [f"【{heading} · {'中文解读' if zh else 'explained'}】"]
     for key, value in info.items():
@@ -388,7 +388,7 @@ def capacity_data(info: dict, profiles: Optional[List[dict]] = None) -> dict:
 
 def describe_capacity(data: dict, language: str = "zh") -> str:
     """把 :func:`capacity_data` 的结果转成中/英文可读说明。"""
-    zh = language != "en"
+    zh = language == "zh"
     lines = [f"【{'容量' if zh else 'Capacity'}】"]
     if zh:
         lines.append(f"  剩余可用容量: {data['freeKB']} ({data['freeBytes']} 字节)")

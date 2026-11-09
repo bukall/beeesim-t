@@ -40,6 +40,16 @@ from beesim_tlv import h2b
 if TYPE_CHECKING:
     from beesim_euicc import BeeSim, Euicc
 
+
+def _fields(response: dict, *names: str) -> tuple:
+    """Extract required ES9+ response fields, raising a clear error if any is
+    missing (a malformed/changed proxy response must not escape as KeyError)."""
+    missing = [name for name in names if name not in response]
+    if missing:
+        raise RuntimeError("ES9+ response missing field(s): " + ", ".join(missing))
+    return tuple(response[name] for name in names)
+
+
 async def download_profile(sim: "BeeSim", euicc: "Euicc", smdp: str, matching_id: str = "",
                            confirm_code: Optional[str] = None, log=print, *, gateway=None) -> dict:
     """Web 2.3.6 download, installation-result validation and notification delivery.
@@ -63,21 +73,25 @@ async def download_profile(sim: "BeeSim", euicc: "Euicc", smdp: str, matching_id
             log("Authenticating server…")
             first = await gateway.execute("initiateAuthentication", smdp, sim.protocol,
                                           {"euiccChallenge": b64e(challenge), "euiccInfo1": b64e(h2b(info["raw"]))})
-            transaction = first["transactionId"]
-            auth = await sim.authenticate_server(b64d(first["serverSigned1"]), b64d(first["serverSignature1"]),
-                                                 b64d(first["euiccCiPKIdToBeUsed"]), b64d(first["serverCertificate"]), matching_id)
+            transaction, signed1, signature1, ci_pk, certificate1 = _fields(
+                first, "transactionId", "serverSigned1", "serverSignature1", "euiccCiPKIdToBeUsed", "serverCertificate")
+            auth = await sim.authenticate_server(b64d(signed1), b64d(signature1),
+                                                 b64d(ci_pk), b64d(certificate1), matching_id)
             log("Authenticating client…")
             second = await gateway.execute("authenticateClient", smdp, sim.protocol,
                                            {"transactionId": transaction, "authenticateServerResponse": b64e(auth)})
-            metadata = _profile_meta(b64d(second["profileMetadata"]))
+            profile_metadata, signed2, signature2, certificate2 = _fields(
+                second, "profileMetadata", "smdpSigned2", "smdpSignature2", "smdpCertificate")
+            metadata = _profile_meta(b64d(profile_metadata))
             log("Preparing download…")
-            prepared = await sim.prepare_download(b64d(second["smdpSigned2"]), b64d(second["smdpSignature2"]),
-                                                  b64d(second["smdpCertificate"]), confirm_code)
+            prepared = await sim.prepare_download(b64d(signed2), b64d(signature2),
+                                                  b64d(certificate2), confirm_code)
             log("Downloading profile package…")
             third = await gateway.execute("getBoundProfilePackage", smdp, sim.protocol,
                                           {"transactionId": transaction, "prepareDownloadResponse": b64e(prepared)})
             log("Installing profile…")
-            raw = await sim.load_bound_profile_package(b64d(third["boundProfilePackage"]))
+            package, = _fields(third, "boundProfilePackage")
+            raw = await sim.load_bound_profile_package(b64d(package))
             result = parse_installation_result(raw)
             log("Sending installation notification…")
             try:
