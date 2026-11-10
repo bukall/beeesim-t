@@ -120,7 +120,9 @@ class WebAPI:
         if not isinstance(data, dict):
             raise RuntimeError(f"ES9+ {action}: unexpected response data")
         status = _execution_status(data, action)
-        if status.get("status") not in (None, "Executed-Success"):
+        # Executed-WithWarning is a valid SGP.22 success-with-warning status; the
+        # official handleReasonCode only rejects on envelope status!=200 + reasonCode.
+        if status.get("status") not in (None, "Executed-Success", "Executed-WithWarning"):
             raise RuntimeError(f"ES9+ {action}: {status.get('status')}")
         return data
 

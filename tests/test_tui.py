@@ -109,7 +109,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             disable_profile=AsyncMock(return_value=True),
             get_profiles=AsyncMock(return_value=[]),
         )
-        app.euicc = SimpleNamespace(reset=AsyncMock(), t=SimpleNamespace(_closed=False))
+        app.euicc = SimpleNamespace(reset=AsyncMock(), t=SimpleNamespace(closed=False))
         app._profiles = [{"iccid": "8901", "profileState": "OFF",
                           "profileNickname": "Test", "profileClass": "test"}]
         async with app.run_test(size=(110, 40)) as pilot:
@@ -120,22 +120,41 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             app.euicc.reset.assert_awaited_once()
 
     async def test_profile_refresh_failure_does_not_fail_operation(self):
-        # 切换已成功、仅刷新失败时，不应把整个操作报为失败，也不应误断连。
+        # 切换已成功、仅刷新失败时：记录“刷新失败”，但不把操作报为失败，也不误断连。
         app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(enable_profile=AsyncMock(return_value=True),
                                   get_profiles=AsyncMock(side_effect=RuntimeError("BLE dropped")))
-        app.euicc = SimpleNamespace(reset=AsyncMock(), t=SimpleNamespace(_closed=False))
+        app.euicc = SimpleNamespace(reset=AsyncMock(), t=SimpleNamespace(closed=False))
+        app._profiles = [{"iccid": "8901", "profileState": "OFF",
+                          "profileNickname": "Test", "profileClass": "test"}]
+        logs = []
+        async with app.run_test(size=(110, 40)) as pilot:
+            app.log_line = logs.append
+            app.action_enable()
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            app.sim.enable_profile.assert_awaited_once_with("8901")
+            app.sim.get_profiles.assert_awaited()
+            self.assertTrue(any("刷新失败" in message for message in logs), logs)
+            self.assertFalse(any("启用失败" in message for message in logs), logs)
+            self.assertFalse(app.busy)
+            self.assertIsNotNone(app.client)         # closed=False -> 未误断连
+
+    async def test_profile_refresh_failure_disconnects_when_transport_closed(self):
+        # 传输层已失效（closed=True）时，刷新失败应清理连接，避免 UI 假装仍连接。
+        app = build_app()(language="zh")
+        app.client = SimpleNamespace(disconnect=AsyncMock())
+        app.sim = SimpleNamespace(enable_profile=AsyncMock(return_value=True),
+                                  get_profiles=AsyncMock(side_effect=RuntimeError("BLE dropped")))
+        app.euicc = SimpleNamespace(reset=AsyncMock(), t=SimpleNamespace(closed=True))
         app._profiles = [{"iccid": "8901", "profileState": "OFF",
                           "profileNickname": "Test", "profileClass": "test"}]
         async with app.run_test(size=(110, 40)) as pilot:
             app.action_enable()
             await pilot.pause()
             await app.workers.wait_for_complete()
-            app.sim.enable_profile.assert_awaited_once_with("8901")
-            app.sim.get_profiles.assert_awaited()   # 刷新失败被 _refresh_soft 吞掉
-            self.assertFalse(app.busy)
-            self.assertIsNotNone(app.client)         # _closed=False -> 未误断连
+            self.assertIsNone(app.client)            # closed=True -> 已断连清理
 
     async def test_connection_initialization_failure_disconnects(self):
         app = build_app()(language="en")
@@ -167,7 +186,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         app = build_app()(language="zh")
         client = SimpleNamespace(address="test", disconnect=AsyncMock())
         sim = SimpleNamespace(get_eid=AsyncMock(return_value="1234"), get_profiles=AsyncMock(return_value=[]))
-        e = SimpleNamespace(on_log=None, t=SimpleNamespace(_closed=False))
+        e = SimpleNamespace(on_log=None, t=SimpleNamespace(closed=False))
         async with app.run_test(size=(110, 40)) as pilot:
             with patch("beesim_tui.connect", new=AsyncMock(return_value=(client, sim, e))):
                 app.action_scan()
@@ -195,7 +214,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(get_profiles=AsyncMock(return_value=[]))
-        app.euicc = SimpleNamespace(t=SimpleNamespace(_closed=False))
+        app.euicc = SimpleNamespace(t=SimpleNamespace(closed=False))
         async with app.run_test(size=(110, 40)) as pilot:
             with patch("beesim_tui.download_profile", new=AsyncMock()) as download:
                 app.action_download()
@@ -218,7 +237,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(get_euicc_info2=AsyncMock(
             return_value={"svn": "v2.2.2", "euiccFirmwareVer": "v1.3.6", "raw": "BF22"}))
-        app.euicc = SimpleNamespace(t=SimpleNamespace(_closed=False))
+        app.euicc = SimpleNamespace(t=SimpleNamespace(closed=False))
         async with app.run_test(size=(110, 40)) as pilot:
             app.action_info()
             await pilot.pause()
@@ -246,7 +265,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                 {"iccid": "8901", "profileNickname": "A", "profileSize": 20480},
                 {"iccid": "8902", "profileNickname": "B", "profileSize": 40960},
             ]))
-        app.euicc = SimpleNamespace(t=SimpleNamespace(_closed=False))
+        app.euicc = SimpleNamespace(t=SimpleNamespace(closed=False))
         async with app.run_test(size=(110, 40)) as pilot:
             app.action_capacity()
             await pilot.pause()

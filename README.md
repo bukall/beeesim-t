@@ -187,7 +187,7 @@ await card.send_notification(seq, delete_after=True)   # 默认 False = 保留
 
 记录在 `web-api-reference.json`：
 
-- 链式 GET RESPONSE 遇到空 `90 00` 时最多重试 3 次（Python 侧防御性重试：v2.1.4 Web 曾如此，v2.3.6 遇 `90` 立即返回），避免返回半截 TLV；
+- 链式 GET RESPONSE 遇到空 `90 00` 时最多重试 3 次（Python 侧防御性扩展：v2.3.6 遇 `90` 立即返回），避免返回半截 TLV；
 - 只读 ES10 命令在响应 TLV 不完整时自动重读；改状态的命令绝不重放；
 - 初始化时校验 SELECT 成功才算会话可用；
 - 下载结束后无论成败都尝试把发射功率恢复到 1；
@@ -292,7 +292,7 @@ APDU，`skip_pin` 开关写入后从未被读取。详见上面的安全警告�
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v      # 88 项，不需要蓝牙/硬件
+python -m unittest discover -s tests -v      # 91 项，不需要蓝牙/硬件
 ```
 
 覆盖 TLV 编解码、APDU 会话、传输分帧、ES10 解析、下载流程、对外 API、HTTP 合约

@@ -301,7 +301,7 @@ def build_app():
                 await callback()
             except Exception as exc:
                 self.log_line(self.tr("failed", action=self.tr(action), error=translate_error(exc, self.language)))
-                if self.euicc and getattr(self.euicc.t, "_closed", False):
+                if self.euicc and getattr(self.euicc.t, "closed", False):
                     await self._disconnect()
             finally:
                 self.busy = False
@@ -341,7 +341,7 @@ def build_app():
             except Exception as exc:
                 self.log_line(self.tr("failed", action=self.tr("refresh"), error=translate_error(exc, self.language)))
                 # 传输层已失效（超时/断连）时清理连接，避免 UI 仍显示“已连接”。
-                if self.euicc and getattr(self.euicc.t, "_closed", False):
+                if self.euicc and getattr(self.euicc.t, "closed", False):
                     await self._disconnect()
                     self._render_status()
 

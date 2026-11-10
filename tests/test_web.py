@@ -86,6 +86,22 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaisesRegex(RuntimeError, message):
                     await self.client.execute("initiateAuthentication", "rsp.example.com", "gsma/rsp/v2.2.2", {})
 
+    async def test_execution_with_warning_is_accepted(self):
+        # SGP.22 Executed-WithWarning 是成功带警告；官方 handleReasonCode 不拒绝它。
+        self.responses.append({"status": 200, "data": {
+            "header": {"functionExecutionStatus": {"status": "Executed-WithWarning"}}, "transactionId": "X"}})
+        value = await self.client.execute("initiateAuthentication", "rsp.example.com", "gsma/rsp/v2.2.2", {})
+        self.assertEqual(value["transactionId"], "X")
+
+    def test_execution_status_helper_tolerates_missing_and_rejects_malformed(self):
+        from beesim_web import _execution_status
+        self.assertEqual(_execution_status({}, "x"), {})
+        self.assertEqual(_execution_status({"header": None}, "x"), {})
+        self.assertEqual(_execution_status({"header": {"functionExecutionStatus": None}}, "x"), {})
+        for bad in ({"header": "bad"}, {"header": {"functionExecutionStatus": "bad"}}):
+            with self.assertRaisesRegex(RuntimeError, "malformed"):
+                _execution_status(bad, "x")
+
 
 def installation_result(success=True):
     metadata = tlv([0xBF, 0x2F], tlv(0x80, b"\x01"), tlv(0x0C, b"rsp.example.com"))

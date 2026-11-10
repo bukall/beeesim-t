@@ -9,7 +9,7 @@
 对外能力
 --------
   h2b / b2h              十六进制字符串 <-> bytes
-  swap_nibbles           ICCID 在卡上按半字节交换存放（官方 JS 的 R/D 辅助函数）
+  swap_nibbles           ICCID 在卡上按半字节交换存放（对应官方 JS 的半字节交换辅助函数）
   der_len / tlv          构造 BER-TLV（多字节 tag、长式长度）
   parse_tlv              递归解析为 [{tag, length, value}] 树
   find_tag / _find_one   按 tag 路径深度优先查找（对应官方 JS 的 tag 查找辅助函数）
