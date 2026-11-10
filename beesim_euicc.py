@@ -305,8 +305,9 @@ class BeeSim:
                 raw = await self.e.store_and_read(command)
                 if attempts == 1 or _tlv_response_complete(raw):
                     return raw
-                self.e._log("incomplete TLV response; re-reading", attempt + 1)
-                await asyncio.sleep(0.2)
+                if attempt + 1 < attempts:   # 仅当还有下一次读取时才记日志并等待
+                    self.e._log("incomplete TLV response; re-reading", attempt + 1)
+                    await asyncio.sleep(0.2)
             return raw
 
     async def get_euicc_info1(self) -> dict:

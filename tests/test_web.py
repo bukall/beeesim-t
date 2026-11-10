@@ -86,12 +86,23 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaisesRegex(RuntimeError, message):
                     await self.client.execute("initiateAuthentication", "rsp.example.com", "gsma/rsp/v2.2.2", {})
 
-    async def test_execution_with_warning_is_accepted(self):
-        # SGP.22 Executed-WithWarning 是成功带警告；官方 handleReasonCode 不拒绝它。
+    async def test_execution_status_success_and_failure_states(self):
+        # WithWarning 是成功（SGP.22）；Failed/Expired 必须拒绝。WebAPI 与 DirectRSP 共用 _require_ok。
+        from beesim_web import _require_ok
+        _require_ok({}, "x")
+        _require_ok({"status": "Executed-Success"}, "x")
+        _require_ok({"status": "Executed-WithWarning"}, "x")
+        for bad in ({"status": "Failed"}, {"status": "Expired"}):
+            with self.assertRaisesRegex(RuntimeError, "ES9+"):
+                _require_ok(bad, "x")
         self.responses.append({"status": 200, "data": {
             "header": {"functionExecutionStatus": {"status": "Executed-WithWarning"}}, "transactionId": "X"}})
         value = await self.client.execute("initiateAuthentication", "rsp.example.com", "gsma/rsp/v2.2.2", {})
         self.assertEqual(value["transactionId"], "X")
+        self.responses.append({"status": 200, "data": {
+            "header": {"functionExecutionStatus": {"status": "Failed"}}}})
+        with self.assertRaisesRegex(RuntimeError, "Failed"):
+            await self.client.execute("initiateAuthentication", "rsp.example.com", "gsma/rsp/v2.2.2", {})
 
     def test_execution_status_helper_tolerates_missing_and_rejects_malformed(self):
         from beesim_web import _execution_status

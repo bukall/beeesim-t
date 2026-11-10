@@ -141,6 +141,19 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(app.busy)
             self.assertIsNotNone(app.client)         # closed=False -> 未误断连
 
+    async def test_job_disconnects_when_action_fails_and_transport_closed(self):
+        # 动作本身失败且传输层已失效（closed=True）时，_job 必须清理连接。
+        app = build_app()(language="zh")
+        app.client = SimpleNamespace(disconnect=AsyncMock())
+        app.sim = SimpleNamespace(get_profiles=AsyncMock(side_effect=RuntimeError("BLE dropped")))
+        app.euicc = SimpleNamespace(t=SimpleNamespace(closed=True))
+        app._profiles = []
+        async with app.run_test(size=(110, 40)) as pilot:
+            app.action_refresh()
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            self.assertIsNone(app.client)
+
     async def test_profile_refresh_failure_disconnects_when_transport_closed(self):
         # 传输层已失效（closed=True）时，刷新失败应清理连接，避免 UI 假装仍连接。
         app = build_app()(language="zh")

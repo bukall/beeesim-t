@@ -43,6 +43,12 @@ def _client_secret(kind):
     return (unpad.update(padded) + unpad.finalize()).decode()
 
 
+# functionExecutionStatus values that count as success. Executed-WithWarning is
+# a valid SGP.22 success-with-warning state; the official handleReasonCode only
+# rejects when the envelope status != 200 (reasonCode selects the message).
+_OK_STATUSES = (None, "Executed-Success", "Executed-WithWarning")
+
+
 def _execution_status(data: dict, action: str) -> dict:
     """Return data.header.functionExecutionStatus.
 
@@ -61,6 +67,12 @@ def _execution_status(data: dict, action: str) -> dict:
     if not isinstance(status, dict):
         raise RuntimeError(f"ES9+ {action}: malformed functionExecutionStatus")
     return status
+
+
+def _require_ok(status: dict, action: str) -> None:
+    """Raise unless the functionExecutionStatus is a success state."""
+    if status.get("status") not in _OK_STATUSES:
+        raise RuntimeError(f"ES9+ {action}: {status.get('status')}")
 
 
 class WebAPI:
@@ -119,11 +131,7 @@ class WebAPI:
             data = {}
         if not isinstance(data, dict):
             raise RuntimeError(f"ES9+ {action}: unexpected response data")
-        status = _execution_status(data, action)
-        # Executed-WithWarning is a valid SGP.22 success-with-warning status; the
-        # official handleReasonCode only rejects on envelope status!=200 + reasonCode.
-        if status.get("status") not in (None, "Executed-Success", "Executed-WithWarning"):
-            raise RuntimeError(f"ES9+ {action}: {status.get('status')}")
+        _require_ok(_execution_status(data, action), action)
         return data
 
     async def login(self, account, *, password=None, vercode=None):
@@ -197,8 +205,6 @@ class DirectRSP:
                 result = json.load(response)
             if not isinstance(result, dict):
                 raise RuntimeError(f"ES9+ {action}: unexpected response")
-            status = _execution_status(result, action)
-            if status.get("status") not in (None, "Executed-Success"):
-                raise RuntimeError(f"ES9+ {action}: {status.get('status')}")
+            _require_ok(_execution_status(result, action), action)
             return result
         return await asyncio.to_thread(perform)
