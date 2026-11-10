@@ -9,7 +9,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from beesim_api import BeeSIMClient
+from beesim_api import BeeSIMClient, connect_card
 
 
 def make_client():
@@ -71,6 +71,21 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(card.closed)
         card._euicc.t = SimpleNamespace(closed=True)   # 超时/断连使传输层失效
         self.assertTrue(card.closed)
+
+    async def test_connect_card_shares_gateway_and_validates_settings(self):
+        from beesim_web import WebAPI
+        fake_connect = AsyncMock(return_value=(
+            SimpleNamespace(address="AA", disconnect=AsyncMock()),
+            SimpleNamespace(), SimpleNamespace()))
+        with patch("beesim_api.connect", new=fake_connect):
+            card = await connect_card()
+            self.assertIsInstance(card._gateway, WebAPI)   # None -> 共享一个 WebAPI 实例
+            marker = object()
+            self.assertIs((await connect_card(gateway=marker))._gateway, marker)
+            for bad in ({"timeout": 0}, {"channel": 4}, {"store_max_lc": 300}, {"delay_over_counter": -1}):
+                with self.assertRaises(ValueError):
+                    await connect_card(**bad)
+            self.assertEqual(fake_connect.await_count, 2)   # 非法参数在连接前失败
 
     async def test_read_methods_delegate_and_return_plain_data(self):
         card = make_client()

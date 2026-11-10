@@ -367,6 +367,20 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "selector"):
             await sim.get_profiles("   ")
 
+    async def test_notification_list_error_child_raises(self):
+        # BF28 {02 ...}（错误子节点）→ 官方 Ee 抛错，不能当作“无通知”。
+        raw = tlv([0xBF, 0x28], tlv(0x02, b"\x01"))
+        sim = BeeSim(euicc(response_sequence(raw)))
+        with self.assertRaisesRegex(RuntimeError, "ListNotification error"):
+            await sim.list_notifications(decoded=True)
+
+    async def test_authenticate_server_rejects_unexpected_root(self):
+        # 根标签不匹配（不是 BF38）时应报错，而不是当作成功。
+        sim = BeeSim(euicc([]))
+        sim._read = AsyncMock(return_value=bytes.fromhex("BF2200"))
+        with self.assertRaisesRegex(RuntimeError, "Unexpected response root"):
+            await sim.authenticate_server(b"", b"", b"", b"")
+
     async def test_delete_notification_is_kept_after_successful_send(self):
         metadata = tlv([0xBF, 0x2F], tlv(0x80, b"\x01"),
                          tlv(0x0C, b"rsp.example.com"), tlv(0x81, bytes.fromhex("0410")))

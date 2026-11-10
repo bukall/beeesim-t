@@ -187,7 +187,7 @@ await card.send_notification(seq, delete_after=True)   # 默认 False = 保留
 
 记录在 `web-api-reference.json`：
 
-- 链式 GET RESPONSE 遇到空 `90 00` 时最多重试 3 次（与官方 Web 一致），避免返回半截 TLV；
+- 链式 GET RESPONSE 遇到空 `90 00` 时最多重试 3 次（Python 侧防御性重试：v2.1.4 Web 曾如此，v2.3.6 遇 `90` 立即返回），避免返回半截 TLV；
 - 只读 ES10 命令在响应 TLV 不完整时自动重读；改状态的命令绝不重放；
 - 初始化时校验 SELECT 成功才算会话可用；
 - 下载结束后无论成败都尝试把发射功率恢复到 1；
@@ -195,7 +195,6 @@ await card.send_notification(seq, delete_after=True)   # 默认 False = 保留
   `--delete-after` / `delete_after=True` 显式删除；
 - 切换卡（enable/disable）成功后复位 eUICC（与官方 Web 一致），API 可用
   `reset=False` 跳过；
-- EnableProfile 返回 `02` 视为成功（官方 Web 报错）；
 - 诊断日志**绝不**自动上传。
 
 平台差异：Windows 无法读取**已连接**设备的 RSSI（见下）；快速重连可能报
@@ -274,13 +273,14 @@ SW 为 `61 xx` 则继续取）拉回。ICCID 在卡上是**半字节交换**存�
 challenge/info1 → `initiateAuthentication` → `AuthenticateServer` →
 `authenticateClient` → `PrepareDownload` → `getBoundProfilePackage` →
 `LoadBoundProfilePackage` → `handleNotification`。激活码形如
-`LPA:1$<smdp>$<matchingId>[$<oid>][$<ccRequired>]`。配置默认安装为**停用**，
+`LPA:1$<smdp>[$<matchingId>][$$<confirmationCode>]`（`$$` 后为实际确认码值；
+是否必填由 PrepareDownload 的 `tag 01 === FF` 判定）。配置默认安装为**停用**，
 需要时 `enable <iccid>`。
 
 ES9+ 请求里的 `protocol` 与官方网页 v2.3.6 一致：`gsma/rsp/<svn>`，而 `svn` 由官方
 版本格式化函数 `w(e)="v"+bytes.join(".")` 生成（**带** `v`），故实际取值为
 `gsma/rsp/v2.2.2`。这也符合 SGP.22 对 `X-Admin-Protocol` 头的规范；官方代理 body
-与直连模式头共用此值。（早期提交曾误删 `v`，已依据官网当前 JS 纠正。）
+与直连模式头共用此值（以上已依据官网当前 v2.3.6 JS 核实）。
 
 **Bluetooth-PIN** 只存在于固件层且处于休眠：网页代码里没有任何 VERIFY/SET/CHANGE-PIN
 APDU，`skip_pin` 开关写入后从未被读取。详见上面的安全警告。

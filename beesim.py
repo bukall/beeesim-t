@@ -156,7 +156,10 @@ async def _run(args):
             await download_profile(sim, euicc, smdp, matching_id,
                                    args.confirm_code or embedded_cc or None, gateway=gateway)
     finally:
-        await client.disconnect()
+        try:
+            await client.disconnect()
+        except Exception:
+            pass   # 清理失败不应掩盖业务异常或改变退出码
 
 
 # --------------------------------------------------------------------------- #
@@ -221,7 +224,7 @@ def main():
     web.add_argument("--data-file")
     sp = sub.add_parser("apdu"); sp.add_argument("hex")
     sp = sub.add_parser("download", help="download an eSIM (LPA activation code / QR)")
-    sp.add_argument("code", help="LPA:1$smdp$matchingId  (or a bare 1$smdp$matchingId)")
+    sp.add_argument("code", help="LPA:1$smdp$matchingId[$$confirmationCode]  (or a bare 1$smdp$matchingId)")
     sp.add_argument("--confirm-code", dest="confirm_code")
     args = p.parse_args()
     if not 0 < args.timeout <= 300 or not 1 <= args.store_max_lc <= 255 or not 0 <= args.delay_over_counter <= 1000:
@@ -240,7 +243,7 @@ def main():
     else:
         try:
             asyncio.run(_run(args))
-        except (RuntimeError, ValueError, OSError, KeyError, IndexError, TypeError) + _BLE_ERRORS as exc:
+        except (RuntimeError, ValueError, OSError, KeyError, IndexError, TypeError, AttributeError) + _BLE_ERRORS as exc:
             print(f"Error: {exc or type(exc).__name__}", file=sys.stderr)
             raise SystemExit(1) from None
 

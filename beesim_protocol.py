@@ -20,7 +20,7 @@ eUICC 协议常量与「原始响应 -> 可读结构」解析层。
 * describe_euicc_info 的字段说明依据 SGP.22 EUICCInfo2 ASN.1，不是猜测；
   位图字段（uiccCapability / rspCapability）按原始十六进制输出，未逐位解码。
 
-与官方 JS 的对应（对照 src/*.js）
+与官方 JS 的对应（对照 src-beautified/*.js，v2.3.6 可读版）
 --------------------------------
   parse_tlv / find_tag        -> K / be / ye
   _parse_profile              -> ze / Re
@@ -506,10 +506,12 @@ def parse_firmware_text(text):
 
 def _response_error(resp: bytes, root_tag: str) -> Optional[str]:
     """Return the error code of a top-level A1 (…ResponseError) in a BFxx response,
-    or None. Only inspects DIRECT children (the A0 ok-branch nests its own A1s)."""
+    or None. Only inspects DIRECT children (the A0 ok-branch nests its own A1s).
+    Raises on an unexpected/empty root tag (the official Me/Ne throw on TAG
+    mismatch) so a wrong response cannot be silently treated as success."""
     nodes = parse_tlv(resp)
     if not nodes or nodes[0]["tag"] != root_tag or not isinstance(nodes[0]["value"], list):
-        return None
+        raise RuntimeError(f"Unexpected response root (expected {root_tag}): {b2h(resp)}")
     a1 = next((c for c in nodes[0]["value"] if c["tag"] == "A1"), None)
     if a1 is None:
         return None

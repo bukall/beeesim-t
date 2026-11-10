@@ -71,7 +71,6 @@ TEXT = {
     "reset_sent": ("复位已发送；若蓝牙断开，请按 s 重新连接。", "Reset sent. If BLE disconnects, reconnect with s."),
     "activation": ("输入 eSIM 激活码", "Enter eSIM activation code"),
     "confirmation_code": ("确认码（不需要时留空）", "Confirmation code (leave blank if not required)"),
-    "confirmation_required": ("确认码为必填项", "Confirmation code is required"),
     "proxy_question": ("通过 BeeSIM 官方代理下载？激活码和协议数据会发送给官方服务。", "Download through the official BeeSIM proxy? Activation and protocol data will be sent to that service."),
     "direct_question": ("直接连接 DP+ 服务器下载并安装此配置？", "Download and install this profile directly from the DP+ server?"),
     "Scanning for BeeSIM…": ("正在扫描 BeeSIM…", "Scanning for BeeSIM…"),

@@ -110,8 +110,9 @@ async def connect_card(
     ----
     本函数只建立 BLE 会话，不会读取 EID/配置，也不会改动卡片状态。
     """
-    if not 0 < timeout <= 300 or not 0 <= delay_over_counter <= 1000:
-        raise ValueError("Invalid timeout or throttle threshold")
+    if (not 0 < timeout <= 300 or not 1 <= store_max_lc <= 255
+            or not 1 <= channel <= 3 or not 0 <= delay_over_counter <= 1000):
+        raise ValueError("Invalid communication settings")
     ble_client, sim, euicc = await connect(
         address,
         debug=debug,

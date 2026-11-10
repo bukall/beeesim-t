@@ -244,13 +244,18 @@ def build_app():
                 self.query_one("#btn-" + name, Button).label = self.tr(name)
             # Binding 是 frozen dataclass，且 App.bind() 向列表追加（Footer 取首个
             # 绑定），故替换条目而非追加，避免英文界面残留中文描述与绑定不断累积。
-            for key, action in self.ACTIONS:
-                description = "APDU" if action == "apdu" else self.tr(action)
-                existing = self._bindings.key_to_bindings.get(key)
-                if existing:
-                    self._bindings.key_to_bindings[key] = [replace(existing[0], description=description, show=True)]
-                else:
-                    self.bind(key, action, description=description)
+            try:
+                for key, action in self.ACTIONS:
+                    description = "APDU" if action == "apdu" else self.tr(action)
+                    existing = self._bindings.key_to_bindings.get(key)
+                    if existing:
+                        self._bindings.key_to_bindings[key] = [replace(existing[0], description=description, show=True)]
+                    else:
+                        self.bind(key, action, description=description)
+            except AttributeError:  # pragma: no cover - Textual internals changed
+                # 回退到公共 bind（可能追加，但不会因内部结构变化而崩溃）。
+                for key, action in self.ACTIONS:
+                    self.bind(key, action, description="APDU" if action == "apdu" else self.tr(action))
             self.refresh_bindings()
             self._render_profiles()
             self._render_status()
@@ -329,6 +334,13 @@ def build_app():
             self._render_profiles()
             self.log_line(self.tr("profile_count", count=len(self._profiles)))
 
+        async def _refresh_soft(self):
+            """写卡操作已成功后的刷新：失败仅记日志，不把成功的操作误报为失败。"""
+            try:
+                await self._load_profiles()
+            except Exception as exc:
+                self.log_line(self.tr("failed", action=self.tr("refresh"), error=translate_error(exc, self.language)))
+
         def action_scan(self):
             if not self._guard(False):
                 return
@@ -364,10 +376,7 @@ def build_app():
                     # 不把已成功的切换误报为失败（重连后可再刷新）。
                     self.log_line(self.tr("apply_reset"))
                     await self.euicc.reset()
-                    try:
-                        await self._load_profiles()
-                    except Exception as exc:
-                        self.log_line(self.tr("failed", action=self.tr("refresh"), error=translate_error(exc, self.language)))
+                    await self._refresh_soft()
                 self._start(action, perform)
 
         def action_enable(self):
@@ -380,7 +389,7 @@ def build_app():
             if self._guard() and (iccid := self._selected()):
                 async def perform():
                     await self.sim.delete_profile(iccid)
-                    await self._load_profiles()
+                    await self._refresh_soft()
                 self.push_screen(ConfirmScreen(self.tr("delete_question", iccid=iccid), self.language),
                                  lambda yes: self._start("delete", perform) if yes else None)
 
@@ -395,7 +404,7 @@ def build_app():
                         return
                     async def perform():
                         await self.sim.set_nickname(iccid, name)
-                        await self._load_profiles()
+                        await self._refresh_soft()
                     self._start("rename", perform)
                 self._form("nickname", submit)
 
@@ -429,7 +438,7 @@ def build_app():
                                                    confirmation_code or embedded_cc or None,
                                                    log=self.progress, gateway=self.gateway)
                         self.log_line(self.tr("download_ok"))
-                        await self._load_profiles()
+                        await self._refresh_soft()
                     from beesim_web import DirectRSP
                     self.push_screen(ConfirmScreen(self.tr("direct_question" if isinstance(self.gateway, DirectRSP) else "proxy_question"), self.language),
                                      lambda yes: self._start("download", perform) if yes else None)

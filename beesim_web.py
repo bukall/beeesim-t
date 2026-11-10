@@ -95,7 +95,12 @@ class WebAPI:
         payload = dict(fields, smdpAddress=smdp, protocol=protocol)
         result = await self.request("rsp", action, payload)
         data = result.get("data") or {}
-        status = (data.get("header") or {}).get("functionExecutionStatus") or {}
+        if not isinstance(data, dict):
+            raise RuntimeError(f"ES9+ {action}: unexpected response data")
+        header = data.get("header")
+        status = (header.get("functionExecutionStatus") if isinstance(header, dict) else None) or {}
+        if not isinstance(status, dict):
+            status = {}
         if status.get("status") not in (None, "Executed-Success"):
             raise RuntimeError(f"ES9+ {action}: {status.get('status')}")
         return data
@@ -169,7 +174,12 @@ class DirectRSP:
                          "X-Admin-Protocol": protocol, "User-Agent": "gsma-rsp-lpad"})
             with urllib.request.urlopen(request, timeout=40) as response:
                 result = json.load(response)
-            status = (result.get("header") or {}).get("functionExecutionStatus") or {}
+            if not isinstance(result, dict):
+                raise RuntimeError(f"ES9+ {action}: unexpected response")
+            header = result.get("header")
+            status = (header.get("functionExecutionStatus") if isinstance(header, dict) else None) or {}
+            if not isinstance(status, dict):
+                status = {}
             if status.get("status") not in (None, "Executed-Success"):
                 raise RuntimeError(f"ES9+ {action}: {status.get('status')}")
             return result

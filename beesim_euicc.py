@@ -126,7 +126,8 @@ class Euicc:
     # --- vendor commands (CLA 0xA0) ------------------------------------------
     async def set_tx_power(self, power: int = 1):
         """A0 3E <power> 00 00 — set BLE TX power. Valid 0-4 (0=min, 4=max;
-        levels 5-7 are meaningless). Web app uses 4 during install."""
+        levels 5-7 are meaningless). The v2.1.4 Web raised it to 4 during install;
+        this client does the same and restores it afterwards (safety difference)."""
         if power not in range(5):
             raise ValueError("TX power must be 0..4")
         r = await self.send_command(bytes([0xA0, 0x3E, power, 0x00, 0x00]), reinit_on_6881=False)
@@ -211,9 +212,10 @@ class Euicc:
                 ins = 0xC0
             elif sw1 == 0x90:               # done
                 if not body and empty_replies < 3:
-                    # Web 2.3.6 retries an empty 90 00: the card may not have
-                    # the next segment ready yet. Returning here would hand a
-                    # partial TLV to parse_tlv ("Truncated TLV value").
+                    # Python-side defensive retry: the card may not have the next
+                    # segment ready yet, and returning here would hand a partial
+                    # TLV to parse_tlv ("Truncated TLV value"). (The v2.1.4 Web
+                    # retried an empty 90 00; v2.3.6 readApdu returns immediately.)
                     empty_replies += 1
                     self._log("<-- empty 90 00, retry", empty_replies)
                     continue
@@ -391,13 +393,19 @@ class BeeSim:
         nodes = parse_tlv(raw)
         if not (nodes and nodes[0]["tag"] == "BF28"):
             raise RuntimeError("ListNotification failed: " + b2h(raw))
-        items = find_tag(nodes, "BF28", "A0")
-        if items is None:
-            # A0 是 OPTIONAL（SGP.22）；卡上无待发通知时官方返回空列表而非报错。
-            return []
-        if not isinstance(items, list):
+        root = nodes[0]["value"]
+        if not isinstance(root, list):
             raise RuntimeError("ListNotification failed: " + b2h(raw))
-        return [_notification_metadata(n["value"]) for n in items if n["tag"] == "BF2F"]
+        if not root:
+            return []   # 空 BF28：无待发通知（A0 是 OPTIONAL，官方返回空列表）
+        for child in root:
+            if child["tag"] == "A0":
+                return ([_notification_metadata(n["value"]) for n in child["value"] if n["tag"] == "BF2F"]
+                        if isinstance(child["value"], list) else [])
+            if child["tag"] == "02":
+                # 官方 Ee 对 BF28 的 02 错误子节点会抛错，而非当作“无通知”。
+                raise RuntimeError("ListNotification error: " + b2h(child["value"]))
+        raise RuntimeError("ListNotification failed: unrecognized response tag")
 
     async def retrieve_notification(self, seq=None) -> bytes:
         command = h2b("BF2B00") if seq is None else tlv([0xBF, 0x2B], tlv(0xA0, tlv(0x80, _seq_bytes(seq))))
@@ -461,15 +469,17 @@ class BeeSim:
         """把指定序号的通知发送给它的 SM-DP+ 服务器。
 
         官方 Web 的 ``M()`` 在 ``handleNotification`` 成功后总会调用
-        ``RemoveNotificationFromList(seq)``。本项目刻意改为**默认保留**卡上的
-        通知：删除不可逆，应由调用方显式决定，且保留记录便于对账。
+        ``RemoveNotificationFromList(index)``（index 取自通知体解析结果）。
+        本项目刻意改为**默认保留**卡上的通知：删除不可逆，应由调用方显式决定，
+        且保留记录便于对账。
 
         参数
         ----
         delete_after
-            ``True`` 时发送成功后按调用方传入的 ``seq`` 删除该通知（与官方一致）；
-            ``False``（默认）时全部保留，不分 INSTALL/ENABLE/DISABLE/DELETE。
-            发送失败时无论取值都不删除，可稍后重试，不要重复下载配置。
+            ``True`` 时发送成功后按**通知体解析出的 index** 删除该通知（与官方一致；
+            index 缺失时才回退到调用方 ``seq``）；``False``（默认）时全部保留，
+            不分 INSTALL/ENABLE/DISABLE/DELETE。发送失败时无论取值都不删除，
+            可稍后重试，不要重复下载配置。
         """
         if seq is None:
             # 必须在任何外部请求之前拒绝：retrieve_notification(None) 会取全部，
