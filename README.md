@@ -177,7 +177,7 @@ await card.send_notification(seq, delete_after=True)   # 默认 False = 保留
 
 > **例外：下载 eSIM 流程仍会自动删除安装通知。** SGP.22 §3.5 规定安装结果经
 > ES9+ `HandleNotification` 送达并获 SM-DP+ 确认后，LPA 应调用 ES10b
-> `RemoveNotificationFromList`；官方 JS 的 `step4_HandleNotification` 同样如此。
+> `RemoveNotificationFromList`；官方 JS 的 `HandleNotification` 同样如此。
 > `download_profile` 第 8 步因此默认删除——安装结果是一次性事务凭证，不删会
 > 持续占用卡内 NV 空间、可能被重复发送，并造成卡侧与运营商侧状态不一致。
 > 这与「手动发送默认保留」并不矛盾：后者面向用户可能想留痕的通知，删除不可逆；
@@ -193,8 +193,8 @@ await card.send_notification(seq, delete_after=True)   # 默认 False = 保留
 - 下载结束后无论成败都尝试把发射功率恢复到 1；
 - 发送通知成功后默认**保留**卡上通知（官方 Web 总会删除）；可用
   `--delete-after` / `delete_after=True` 显式删除；
-- 切换卡（enable/disable）成功后复位 eUICC（与官方 Web 一致），API 可用
-  `reset=False` 跳过；
+- 切换卡（enable/disable）成功后默认复位 eUICC（与官方 Web 一致）；额外提供
+  API `reset=False` 让调用方跳过复位（本客户端扩展）；
 - 诊断日志**绝不**自动上传。
 
 平台差异：Windows 无法读取**已连接**设备的 RSSI（见下）；快速重连可能报
@@ -292,7 +292,7 @@ APDU，`skip_pin` 开关写入后从未被读取。详见上面的安全警告�
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v      # 82 项，不需要蓝牙/硬件
+python -m unittest discover -s tests -v      # 88 项，不需要蓝牙/硬件
 ```
 
 覆盖 TLV 编解码、APDU 会话、传输分帧、ES10 解析、下载流程、对外 API、HTTP 合约

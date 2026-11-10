@@ -43,6 +43,26 @@ def _client_secret(kind):
     return (unpad.update(padded) + unpad.finalize()).decode()
 
 
+def _execution_status(data: dict, action: str) -> dict:
+    """Return data.header.functionExecutionStatus.
+
+    Tolerate a missing/None header or status (treated as success, as the Web
+    does), but reject a *present but malformed* header/status instead of
+    silently treating a corrupt ES9+ response as success (fail-closed).
+    """
+    header = data.get("header")
+    if header is None:
+        return {}
+    if not isinstance(header, dict):
+        raise RuntimeError(f"ES9+ {action}: malformed response header")
+    status = header.get("functionExecutionStatus")
+    if status is None:
+        return {}
+    if not isinstance(status, dict):
+        raise RuntimeError(f"ES9+ {action}: malformed functionExecutionStatus")
+    return status
+
+
 class WebAPI:
     def __init__(self, base_url="https://beeesim.com", *, token=None, timeout=40,
                  opener=None, clock=None):
@@ -94,13 +114,12 @@ class WebAPI:
             raise ValueError("Unknown ES9+ action")
         payload = dict(fields, smdpAddress=smdp, protocol=protocol)
         result = await self.request("rsp", action, payload)
-        data = result.get("data") or {}
+        data = result.get("data")
+        if data is None:
+            data = {}
         if not isinstance(data, dict):
             raise RuntimeError(f"ES9+ {action}: unexpected response data")
-        header = data.get("header")
-        status = (header.get("functionExecutionStatus") if isinstance(header, dict) else None) or {}
-        if not isinstance(status, dict):
-            status = {}
+        status = _execution_status(data, action)
         if status.get("status") not in (None, "Executed-Success"):
             raise RuntimeError(f"ES9+ {action}: {status.get('status')}")
         return data
@@ -176,10 +195,7 @@ class DirectRSP:
                 result = json.load(response)
             if not isinstance(result, dict):
                 raise RuntimeError(f"ES9+ {action}: unexpected response")
-            header = result.get("header")
-            status = (header.get("functionExecutionStatus") if isinstance(header, dict) else None) or {}
-            if not isinstance(status, dict):
-                status = {}
+            status = _execution_status(result, action)
             if status.get("status") not in (None, "Executed-Success"):
                 raise RuntimeError(f"ES9+ {action}: {status.get('status')}")
             return result

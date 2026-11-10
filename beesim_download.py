@@ -14,11 +14,12 @@ SGP.22 eSIM 下载流程（卡侧 ES10b 与服务器侧 ES9+ 交错执行）。
 
 重要约定（维护者 / AI 请先读）
 ------------------------------
-* 下载期间 TX 功率提升到 4；**无论成功或失败**都在 finally 恢复到 1
-  （v2.1.4 Web 只提升不恢复；v2.3.6 定义了 setTXPower 但下载流程未见调用。
-  恢复功率是本客户端的有意安全差异，见 web-api-reference.json）。
+* 下载期间 TX 功率提升到 4；**无论成功或失败**都在 finally 恢复到 1。
+  v2.3.6 的下载入口（He.start）同样先 setTXPower(4)、成功后 setTXPower(1)，
+  但**失败路径不恢复**（src-beautified/utils-v_n99D2T.js:2781-2794）；本客户端
+  在 finally 里失败也恢复，这是有意的安全差异，见 web-api-reference.json。
 * 通知发送失败时抛错且保留卡上通知，不要重复下载；刷新后重试 notification-send。
-* **第 8 步发送成功后会删除安装通知**，与官方 JS ``step4_HandleNotification`` 一致。
+* **第 8 步发送成功后会删除安装通知**，与官方 JS ``HandleNotification`` 一致。
   这是 SGP.22 §3.5 的标准流程：LPA 用 ES9+ ``HandleNotification`` 把安装结果
   发给 SM-DP+，服务器确认接收后再用 ES10b ``RemoveNotificationFromList`` 删除。
   安装结果是一次性事务凭证，不删会持续占用卡内 NV 空间、可能被重复发送，

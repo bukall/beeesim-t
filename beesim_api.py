@@ -97,7 +97,7 @@ async def connect_card(
     channel
         ISO 7816-4 逻辑通道 1..3，默认 1。
     delay_over_counter
-        连续多少条 APDU 后暂停 1.2 秒，默认 6；0 关闭节流。
+        连续多少条 APDU 后暂停 1.2 秒，默认 6，范围 0..1000；0 关闭节流。
     gateway
         可选 ES9+ 网关对象（需实现 async execute(action, smdp, protocol, fields)）。
         None 时使用官方 Web 代理 WebAPI；也可传 beesim_web.DirectRSP()。
@@ -271,7 +271,7 @@ class BeeSIMClient:
         """启用配置。⚠ 会改变卡片状态，可能使手机短暂重新搜网。
 
         ``reset=True``（默认）在成功后发送软复位（``A0 3F``）让配置生效——
-        官方 Web 的 ``P()`` 在 EnableProfile 后同样跟一次 reset；CLI 与 TUI
+        官方 Web 在 EnableProfile 后同样跟一次 reset；CLI 与 TUI
         也走这条路径。传 ``reset=False`` 可跳过复位（例如批量操作后自行统一复位）。
         返回 True 表示成功；卡片返回「已启用」(02) 也视为成功。
         """
@@ -284,7 +284,7 @@ class BeeSIMClient:
     async def disable(self, iccid: str, *, reset: bool = True) -> bool:
         """停用配置。⚠ 会改变卡片状态；reset 语义同 :meth:`enable`。
 
-        官方 Web 的 ``F()`` 在 DisableProfile 后同样跟一次 reset。
+        官方 Web 在 DisableProfile 后同样跟一次 reset。
         """
         self._ensure_open()
         ok = bool(await self._sim.disable_profile(iccid))

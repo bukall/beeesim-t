@@ -119,6 +119,24 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             app.sim.enable_profile.assert_awaited_once_with("8901")
             app.euicc.reset.assert_awaited_once()
 
+    async def test_profile_refresh_failure_does_not_fail_operation(self):
+        # 切换已成功、仅刷新失败时，不应把整个操作报为失败，也不应误断连。
+        app = build_app()(language="zh")
+        app.client = SimpleNamespace(disconnect=AsyncMock())
+        app.sim = SimpleNamespace(enable_profile=AsyncMock(return_value=True),
+                                  get_profiles=AsyncMock(side_effect=RuntimeError("BLE dropped")))
+        app.euicc = SimpleNamespace(reset=AsyncMock(), t=SimpleNamespace(_closed=False))
+        app._profiles = [{"iccid": "8901", "profileState": "OFF",
+                          "profileNickname": "Test", "profileClass": "test"}]
+        async with app.run_test(size=(110, 40)) as pilot:
+            app.action_enable()
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            app.sim.enable_profile.assert_awaited_once_with("8901")
+            app.sim.get_profiles.assert_awaited()   # 刷新失败被 _refresh_soft 吞掉
+            self.assertFalse(app.busy)
+            self.assertIsNotNone(app.client)         # _closed=False -> 未误断连
+
     async def test_connection_initialization_failure_disconnects(self):
         app = build_app()(language="en")
         client = SimpleNamespace(address="test", disconnect=AsyncMock())

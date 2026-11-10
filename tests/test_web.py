@@ -73,6 +73,19 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
             value = _client_secret(kind)
             self.assertTrue(isinstance(value, str) and len(value) > 0)
 
+    async def test_malformed_es9_response_is_rejected(self):
+        # 存在但类型错误的 header/status、非 dict 的 data 都要 fail-closed（不能误判成功）。
+        cases = [
+            ({"status": 200, "data": {"header": "bad"}}, "malformed response header"),
+            ({"status": 200, "data": {"header": {"functionExecutionStatus": "bad"}}}, "malformed functionExecutionStatus"),
+            ({"status": 200, "data": []}, "unexpected response data"),
+        ]
+        for response, message in cases:
+            with self.subTest(message=message):
+                self.responses.append(response)
+                with self.assertRaisesRegex(RuntimeError, message):
+                    await self.client.execute("initiateAuthentication", "rsp.example.com", "gsma/rsp/v2.2.2", {})
+
 
 def installation_result(success=True):
     metadata = tlv([0xBF, 0x2F], tlv(0x80, b"\x01"), tlv(0x0C, b"rsp.example.com"))

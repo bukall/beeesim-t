@@ -126,8 +126,8 @@ class Euicc:
     # --- vendor commands (CLA 0xA0) ------------------------------------------
     async def set_tx_power(self, power: int = 1):
         """A0 3E <power> 00 00 — set BLE TX power. Valid 0-4 (0=min, 4=max;
-        levels 5-7 are meaningless). The v2.1.4 Web raised it to 4 during install;
-        this client does the same and restores it afterwards (safety difference)."""
+        levels 5-7 are meaningless). The Web raises it to 4 for the duration of a
+        download and restores 1 on success; this client also restores on failure."""
         if power not in range(5):
             raise ValueError("TX power must be 0..4")
         r = await self.send_command(bytes([0xA0, 0x3E, power, 0x00, 0x00]), reinit_on_6881=False)
@@ -468,7 +468,7 @@ class BeeSim:
     async def send_notification(self, seq, gateway=None, *, delete_after: bool = False):
         """把指定序号的通知发送给它的 SM-DP+ 服务器。
 
-        官方 Web 的 ``M()`` 在 ``handleNotification`` 成功后总会调用
+        官方 Web 的 ``sendAndDelNotification`` 在成功后总会调用
         ``RemoveNotificationFromList(index)``（index 取自通知体解析结果）。
         本项目刻意改为**默认保留**卡上的通知：删除不可逆，应由调用方显式决定，
         且保留记录便于对账。

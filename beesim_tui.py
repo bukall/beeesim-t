@@ -340,6 +340,10 @@ def build_app():
                 await self._load_profiles()
             except Exception as exc:
                 self.log_line(self.tr("failed", action=self.tr("refresh"), error=translate_error(exc, self.language)))
+                # 传输层已失效（超时/断连）时清理连接，避免 UI 仍显示“已连接”。
+                if self.euicc and getattr(self.euicc.t, "_closed", False):
+                    await self._disconnect()
+                    self._render_status()
 
         def action_scan(self):
             if not self._guard(False):

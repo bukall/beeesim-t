@@ -367,6 +367,16 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "selector"):
             await sim.get_profiles("   ")
 
+    async def test_notification_list_parses_items(self):
+        # BF28{A0{BF2F{...}}} 正常路径（A0 直接包含 BF2F）。
+        metadata = tlv([0xBF, 0x2F], tlv(0x80, b"\x01"), tlv(0x0C, b"rsp.example.com"))
+        raw = tlv([0xBF, 0x28], tlv(0xA0, metadata))
+        sim = BeeSim(euicc(response_sequence(raw)))
+        items = await sim.list_notifications(decoded=True)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["index"], "01")
+        self.assertEqual(items[0]["notificationAddress"], "rsp.example.com")
+
     async def test_notification_list_error_child_raises(self):
         # BF28 {02 ...}（错误子节点）→ 官方 Ee 抛错，不能当作“无通知”。
         raw = tlv([0xBF, 0x28], tlv(0x02, b"\x01"))

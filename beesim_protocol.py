@@ -16,18 +16,19 @@ eUICC 协议常量与「原始响应 -> 可读结构」解析层。
 * ES10 命令是 BER-TLV，装在 STORE DATA(81 E2) 里；响应用 GET RESPONSE(81 C0) 拉回。
 * ICCID 在卡上以半字节交换的 BCD 存放（tag 5A），读出后 swap_nibbles + 去尾部 F。
 * 通知操作 tag 81 是 BIT STRING：0780=INSTALL / 0640=ENABLE /
-  0520=DISABLE / 0410=DELETE（与官方 JS 的 J.toBytes / J.toLabel 一致）。
+  0520=DISABLE / 0410=DELETE（与官方 JS 通知操作的 toBytes / toLabel 一致）。
 * describe_euicc_info 的字段说明依据 SGP.22 EUICCInfo2 ASN.1，不是猜测；
   位图字段（uiccCapability / rspCapability）按原始十六进制输出，未逐位解码。
 
-与官方 JS 的对应（对照 src-beautified/*.js，v2.3.6 可读版）
+与官方 JS 的对应（对照 src-beautified/*.js，v2.3.6 可读版；压缩符号随构建变化，
+故按行为对照而非固定字母名）
 --------------------------------
-  parse_tlv / find_tag        -> K / be / ye
-  _parse_profile              -> ze / Re
-  _parse_euicc_info           -> Ee / De
-  _notification_metadata      -> Q / Oe
-  parse_installation_result   -> je
-  _bpp_to_blocks              -> Be.toBlocks
+  parse_tlv / find_tag        -> BER-TLV 解析 / 按 tag 查找
+  _parse_profile              -> GetProfilesInfo 的 ProfileInfo(E3) 解析
+  _parse_euicc_info           -> GetEUICCInfo1/2 解析
+  _notification_metadata      -> 通知元数据解析
+  parse_installation_result   -> 安装结果（BF37/BF27）解析
+  _bpp_to_blocks              -> BoundProfilePackage.toBlocks
 """
 
 from __future__ import annotations

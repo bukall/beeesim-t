@@ -12,7 +12,7 @@
   swap_nibbles           ICCID 在卡上按半字节交换存放（官方 JS 的 R/D 辅助函数）
   der_len / tlv          构造 BER-TLV（多字节 tag、长式长度）
   parse_tlv              递归解析为 [{tag, length, value}] 树
-  find_tag / _find_one   按 tag 路径深度优先查找（官方 JS 的 be/ye）
+  find_tag / _find_one   按 tag 路径深度优先查找（对应官方 JS 的 tag 查找辅助函数）
   serialize_tlv          把解析节点还原为十六进制字符串（用于 pendingNotification）
   _child / _tlv_to_debug / _tlv_response_complete / _int_bytes  辅助函数
 
@@ -20,7 +20,7 @@
 ------------------------------
 * APDU 响应状态字 SW1SW2 在**末尾**；本模块不剥离 SW，剥离由 beesim_euicc 负责。
 * parse_tlv 严格校验长度，不足时抛 ValueError("Truncated TLV value: ...") 并附带
-  tag / 所需长度 / 剩余长度 / 数据前缀。官方 JS 的 K() 会静默吞掉截断数据，
+  tag / 所需长度 / 剩余长度 / 数据前缀。官方 JS 的 TLV 解析器会静默吞掉截断数据，
   这里刻意更严格，以便暴露链路问题。
 * constructed 判定按 BER 规则：tag 首字节 bit6 (0x20) 置位即递归解析其 value。
 * 无类、无状态、无全局可变数据，可并发安全使用。
