@@ -524,11 +524,13 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                                  disconnect=AsyncMock(), start_notify=AsyncMock(),
                                  services=[SimpleNamespace(uuid=SERVICE_UUID, characteristics=chars)])
         device = SimpleNamespace(address="test", name="BeeSIM-test")
-        with patch("beesim_transport.BleakScanner.find_device_by_address", new=AsyncMock(return_value=device)), \
+        scan = AsyncMock(return_value=device)
+        with patch("beesim_transport.BleakScanner.find_device_by_address", new=scan), \
                 patch("beesim_transport.BleakClient", return_value=client), \
                 patch("beesim_transport.asyncio.sleep", new=AsyncMock()):
             _, _, e = await connect("test")
         self.assertEqual(client.connect.await_count, 2)   # 第一次瞬时失败后重试成功
+        scan.assert_awaited_once()                        # 重试不重复扫描（设备解析在重试外）
 
     async def test_address_resolve_called_once(self):
         chars = [SimpleNamespace(uuid="write-nr", properties=["write-without-response"]),
@@ -571,7 +573,9 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             _, _, euicc = await connect("test")
         self.assertEqual(len(clients), 2)                 # 两次尝试各建一个 client
         self.assertFalse(euicc.t.closed)
+        euicc.inited = True
         clients[0].disconnected_callback(clients[0])      # 旧 client 的延迟断开回调
         self.assertFalse(euicc.t.closed)                  # 不得关闭新会话（身份校验）
+        self.assertTrue(euicc.inited)                     # 也不得清除新会话的 inited
         clients[1].disconnected_callback(clients[1])      # 当前 client 的回调
         self.assertTrue(euicc.t.closed)                   # 正常关闭
