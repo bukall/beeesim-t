@@ -46,9 +46,9 @@ SM-DP+, querying firmware versions and the `web` subcommand also talk HTTPS
 | `beesim_tui.py`, `beesim_i18n.py` | 双语 Textual 界面与文案 |
 
 `src/` 是官方网页 **BeeSIM Web v2.3.6** 的原始 JS 快照（21 个 chunk，抓取自
-<https://beeesim.com/ble/>，哈希与 `web-api-reference.json` 一致）；`src-beautified/`
-是其 js-beautify 反混淆可读版，便于核对。二者作为逆向依据保留，**不参与运行**。
-`web-api-reference.json` 记录 v2.3.6 的源哈希、接口合约与有意差异。
+<https://beeesim.com/ble/>）；`src-beautified/` 是其 js-beautify 反混淆可读版，便于核对。
+二者作为逆向依据保留，**不参与运行**。`web-api-reference.json` 记录其中 index/pages/utils
+三个关键 chunk 及 index.html 的 SHA256（index.html 仅记哈希、未入库）、接口合约与有意差异。
 
 ## Install
 
@@ -131,6 +131,15 @@ dict/list/str/bool。超时或断开后必须重新 `connect_card()`，旧对象
 会改变卡片状态的方法（`delete`、`firmware_write`、`set_tx_power`、`reset`、
 `download`）在源码里标注了危险等级，**不会**弹窗二次确认，调用方自行确认。
 
+兼容性说明（相对早期版本的破坏性变更）：
+
+- `beesim_protocol.parse_activation_code` 返回 `(smdp, matchingId, confirmationCode)`，
+  第三位由旧版 `bool`（是否需确认码）改为 `str`（激活码 `$$` 段嵌入的实际确认码值，
+  空串表示无）；采用官方非锚定前缀匹配，容忍尾部 OID/flag 段。不要把它与 `True` 比较。
+- `BeeSIMClient.reset()` 现返回 `bool`（卡片是否应答 `90 00`），尽力而为、不抛异常。
+- `info_explained` / `capacity_explained` 的语言判定与 `translate` 一致：仅精确 `"zh"`
+  为中文，其它标签（含 `"zh-CN"`、`"en-US"`）一律英文。
+
 ## Communication settings
 
 默认值取自官方 BeeSIM Web 2.3.6（`web-api-reference.json`），语义来自
@@ -155,7 +164,8 @@ ISO 7816-4 与 GSMA SGP.22。
 
 **近似总容量 = sum(profileSize) + 剩余容量**。ETSI TS 102 226 §8.2.1.7.2 只定义了
 空闲内存，卡上**没有**权威的总容量字段：这个数字不含系统/文件系统开销，且只统计
-报告了大小的配置。不支持 bit 14 的卡（本卡 `rspCapability` 为 `0192`）不报告大小，
+报告了大小的配置。当仅部分配置报告大小时，已安装合计与「近似已用占比」都是**下界**
+（真实值更高）。不支持 bit 14 的卡（本卡 `rspCapability` 为 `0192`）不报告大小，
 此时程序如实显示「无法计算」，**绝不**用猜测值代替。
 
 ## Notifications
