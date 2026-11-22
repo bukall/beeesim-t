@@ -313,8 +313,8 @@ class BeeSIMClient:
     async def reset(self) -> bool:
         """软复位 eUICC（A0 3F），让手机重新识别配置。⚠ 会短暂中断网络。
 
-        尽力而为：返回 True 表示卡片应答 90 00；失败（含复位时掉线）返回 False，
-        不抛异常。调用方据此提示用户重连。
+        尽力而为：返回 True 表示卡片**有应答**（任意状态字；官方 Web 亦不检查 SW）；
+        无应答（超时/断连）返回 False，不抛异常。调用方据此提示用户重连。
         """
         self._ensure_open()
         return await self._euicc.reset()
@@ -378,6 +378,12 @@ class BeeSIMClient:
 
         调用方必须自行确认；本方法不做二次询问。文件需含 F0 行与末尾 F2 行，
         并由倒数第二行提供 CRC。resume=True 时仅在 CRC 与总行数匹配后续传。
+
+        返回 dict：
+          status      "written"（已写入）或 "already-complete"（无需写入）
+          start/rows  本次写入的起始行号与行数（already-complete 时 rows=0）
+          totalRows   固件总行数
+          reset       刷写后软复位是否获应答（True/False）；already-complete 时为 None
         """
         self._ensure_open()
         firmware = parse_firmware_text(Path(path).expanduser().read_text(encoding="utf-8"))

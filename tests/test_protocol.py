@@ -4,6 +4,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import ANY, AsyncMock, patch
 
+from bleak.exc import BleakError
+
 from beesim_euicc import BeeSim, Euicc
 from beesim_protocol import SERVICE_UUID, _parse_profile, capacity_data, describe_capacity, describe_euicc_info, format_capacity_kb, parse_activation_code, parse_firmware_text
 from beesim_tlv import find_tag, parse_tlv, tlv
@@ -178,6 +180,8 @@ class InitializationTests(unittest.IsolatedAsyncioTestCase):
         e2.inited = True
         self.assertTrue(await e2.reset())
         self.assertFalse(e2.inited)
+        e3 = euicc(["6A81"])                 # 任意 SW 应答（如 6A81）也算 True（官方不检查 SW）
+        self.assertTrue(await e3.reset())
 
 
 class InfoExplanationTests(unittest.TestCase):
@@ -428,7 +432,7 @@ class APITests(unittest.IsolatedAsyncioTestCase):
 
     async def test_firmware_headers_and_failure_stop(self):
         e = euicc(["10000001", "10000001", "9000"])
-        await BeeSim(e).download_firmware(["F001", "F200"], log=lambda _: None)
+        self.assertTrue(await BeeSim(e).download_firmware(["F001", "F200"], log=lambda _: None))   # 复位 9000 -> True
         self.assertEqual(e.t.commands[:2], [bytes.fromhex("00020001F001"), bytes.fromhex("00020002F200")])
         self.assertEqual(e.t.commands[-1], bytes.fromhex("A03F000000"))
         e = euicc(["00000000"])
@@ -438,7 +442,10 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(e.delay_over_counter, 0)
         # 官方：a[0]==16 或 a[3]==1 任一成立即成功（仅两者都失败才报错）。
         e = euicc(["10000000", "9000"])      # [0]=0x10, [3]=0 -> 成功
-        await BeeSim(e).download_firmware(["F001"], log=lambda _: None)
+        self.assertTrue(await BeeSim(e).download_firmware(["F001"], log=lambda _: None))
+        # 行写成功但复位无应答 -> download_firmware 返回 False（调用方应提示）。
+        e = euicc(["10000001"])
+        self.assertFalse(await BeeSim(e).download_firmware(["F001"], log=lambda _: None))
 
 
 class TransportTests(unittest.IsolatedAsyncioTestCase):
@@ -522,3 +529,49 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 patch("beesim_transport.asyncio.sleep", new=AsyncMock()):
             _, _, e = await connect("test")
         self.assertEqual(client.connect.await_count, 2)   # 第一次瞬时失败后重试成功
+
+    async def test_address_resolve_called_once(self):
+        chars = [SimpleNamespace(uuid="write-nr", properties=["write-without-response"]),
+                 SimpleNamespace(uuid="notify", properties=["notify"])]
+        client = SimpleNamespace(connect=AsyncMock(), disconnect=AsyncMock(), start_notify=AsyncMock(),
+                                 services=[SimpleNamespace(uuid=SERVICE_UUID, characteristics=chars)])
+        device = SimpleNamespace(address="test", name="BeeSIM-test")
+        scan = AsyncMock(return_value=device)
+        with patch("beesim_transport.BleakScanner.find_device_by_address", new=scan), \
+                patch("beesim_transport.BleakClient", return_value=client):
+            await connect("test")
+        scan.assert_awaited_once()   # 设备解析只做一次，不在重试内重复扫描
+
+    async def test_scan_error_not_retried(self):
+        # 扫描/解析错误（如无适配器抛 BleakError）不再重试，快速失败。
+        scan = AsyncMock(side_effect=BleakError("no adapter"))
+        with patch("beesim_transport.BleakScanner.find_device_by_address", new=scan):
+            with self.assertRaises(BleakError):
+                await connect("test")
+        scan.assert_awaited_once()
+
+    async def test_stale_disconnect_callback_does_not_close_new_session(self):
+        chars = [SimpleNamespace(uuid="write-nr", properties=["write-without-response"]),
+                 SimpleNamespace(uuid="notify", properties=["notify"])]
+        clients = []
+
+        def factory(device, disconnected_callback=None):
+            c = SimpleNamespace(connect=AsyncMock(), disconnect=AsyncMock(), start_notify=AsyncMock(),
+                                services=[SimpleNamespace(uuid=SERVICE_UUID, characteristics=chars)])
+            c.disconnected_callback = disconnected_callback
+            if not clients:                     # 第一次尝试：connect 抛瞬时错误
+                c.connect = AsyncMock(side_effect=TimeoutError())
+            clients.append(c)
+            return c
+
+        device = SimpleNamespace(address="test", name="BeeSIM-test")
+        with patch("beesim_transport.BleakScanner.find_device_by_address", new=AsyncMock(return_value=device)), \
+                patch("beesim_transport.BleakClient", side_effect=factory), \
+                patch("beesim_transport.asyncio.sleep", new=AsyncMock()):
+            _, _, euicc = await connect("test")
+        self.assertEqual(len(clients), 2)                 # 两次尝试各建一个 client
+        self.assertFalse(euicc.t.closed)
+        clients[0].disconnected_callback(clients[0])      # 旧 client 的延迟断开回调
+        self.assertFalse(euicc.t.closed)                  # 不得关闭新会话（身份校验）
+        clients[1].disconnected_callback(clients[1])      # 当前 client 的回调
+        self.assertTrue(euicc.t.closed)                   # 正常关闭

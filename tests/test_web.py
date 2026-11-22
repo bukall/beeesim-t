@@ -183,6 +183,13 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "not a string"):
             await download_profile(sim, e, "rsp.example.com", gateway=gateway, log=lambda _: None)
 
+    def test_fields_accepts_numeric_transaction_id(self):
+        from beesim_download import _fields
+        # transactionId 仅透传（不解码），允许数字；其余 base64 字段仍要求字符串。
+        self.assertEqual(_fields({"transactionId": 123}, "transactionId", strict=False), (123,))
+        with self.assertRaisesRegex(RuntimeError, "not a string"):
+            _fields({"x": 1}, "x")
+
 
 class DirectRSPTests(unittest.IsolatedAsyncioTestCase):
     async def test_direct_rsp_url_status_and_tls(self):

@@ -169,10 +169,12 @@ async def connect(address: Optional[str] = None, debug: bool = False, *,
     transport = euicc = None
 
     def disconnected(client):
-        if transport:
+        # 仅当断开回调来自"当前会话的 client"时才处理。重试时此回调被多次 _open
+        # 共享，旧 client 的延迟断开回调若不加身份校验会误关新会话。
+        if transport is not None and getattr(transport, "client", None) is client:
             transport.disconnected(client)
-        if euicc:
-            euicc.inited = False
+            if euicc:
+                euicc.inited = False
 
     async def _open():
         nonlocal transport, euicc

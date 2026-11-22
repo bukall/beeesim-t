@@ -137,7 +137,7 @@ dict/list/str/bool。超时或断开后必须重新 `connect_card()`，旧对象
 - `beesim_protocol.parse_activation_code` 返回 `(smdp, matchingId, confirmationCode)`，
   第三位由旧版 `bool`（是否需确认码）改为 `str`（激活码 `$$` 段嵌入的实际确认码值，
   空串表示无）；采用官方非锚定前缀匹配，容忍尾部 OID/flag 段。不要把它与 `True` 比较。
-- `BeeSIMClient.reset()` 现返回 `bool`（卡片是否应答 `90 00`），尽力而为、不抛异常。
+- `BeeSIMClient.reset()` 现返回 `bool`（True=收到任意应答；False=无应答/超时/断连），尽力而为、不抛异常。
 - `info_explained` / `capacity_explained` 的语言判定与 `translate` 一致：仅精确 `"zh"`
   为中文，其它标签（含 `"zh-CN"`、`"en-US"`）一律英文。
 

@@ -127,6 +127,11 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await card.disable("8901", reset=False))
         card._euicc.reset.assert_awaited_once()
 
+    async def test_enable_unaffected_by_reset_result(self):
+        card = make_client()
+        card._euicc.reset = AsyncMock(return_value=False)   # 复位无应答
+        self.assertTrue(await card.enable("8901"))          # 启用成功仍返回 True（best-effort 复位）
+
     async def test_download_parses_activation_code_and_embedded_confirmation(self):
         card = make_client()
         with patch("beesim_api.download_profile", new=AsyncMock(return_value={"iccid": "8901"})) as dl:
