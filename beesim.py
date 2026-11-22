@@ -120,6 +120,7 @@ async def _run(args):
                 print("reset sent")
             else:
                 print("reset failed (card may have disconnected; reconnect and verify)", file=sys.stderr)
+                raise SystemExit(1)   # 显式复位失败时非零退出码，避免脚本按退出码误判成功
         elif args.command == "txpower":
             await euicc.set_tx_power(int(args.level))
             print("tx power set")
@@ -148,7 +149,9 @@ async def _run(args):
             if start > len(rows):
                 print("Firmware already complete")
             else:
-                await sim.download_firmware(rows[start-1:], len(rows), start)
+                reset_ok = await sim.download_firmware(rows[start-1:], len(rows), start)
+                if not reset_ok:
+                    print("firmware written; reset not acknowledged (reconnect to verify)", file=sys.stderr)
         elif args.command == "apdu":
             try:
                 print(b2h(await euicc.send_command(h2b(args.hex), reinit_on_6881=False)))
@@ -185,7 +188,7 @@ def run_tui(address=None, language=None, **options):
 
 def main():
     p = argparse.ArgumentParser(description="BeeSIM BLE controller")
-    p.add_argument("--address", help="BLE MAC/UUID (skip scan)")
+    p.add_argument("--address", help="BLE MAC/UUID (briefly resolves it to a scanned device; omit to scan by name)")
     p.add_argument("--debug", action="store_true", help="log all APDU traffic to stderr")
     p.add_argument("--lang", choices=("zh", "en"), help="TUI language; omitted: choose at startup")
     p.add_argument("--timeout", type=float, default=30.0, help="APDU timeout in seconds (default: 30)")

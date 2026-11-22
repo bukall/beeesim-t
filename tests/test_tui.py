@@ -161,7 +161,8 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(app.client)
 
     async def test_profile_refresh_failure_disconnects_when_transport_closed(self):
-        # 传输层已失效（closed=True）时，刷新失败应清理连接，避免 UI 假装仍连接。
+        # 传输层已失效（closed=True）时，刷新失败应清理连接，避免 UI 假装仍连接；
+        # 此时复位未执行，文案应为“未执行复位”（apply_reset_skipped）。
         app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(enable_profile=AsyncMock(return_value=True),
@@ -176,7 +177,43 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             await app.workers.wait_for_complete()
             self.assertIsNone(app.client)
-            self.assertTrue(any("复位未获应答" in message for message in logs), logs)   # apply_reset_failed 文案            # closed=True -> 已断连清理
+            self.assertTrue(any("未执行复位" in message for message in logs), logs)
+
+    async def test_profile_switch_reset_no_response_keeps_live_session(self):
+        # 连接仍在但复位无应答（reset=False, closed=False）→ 记 apply_reset_failed，不断连。
+        app = build_app()(language="zh")
+        app.client = SimpleNamespace(disconnect=AsyncMock())
+        app.sim = SimpleNamespace(enable_profile=AsyncMock(return_value=True),
+                                  get_profiles=AsyncMock(return_value=[]))
+        app.euicc = SimpleNamespace(reset=AsyncMock(return_value=False), t=SimpleNamespace(closed=False))
+        app._profiles = [{"iccid": "8901", "profileState": "OFF",
+                          "profileNickname": "Test", "profileClass": "test"}]
+        logs = []
+        async with app.run_test(size=(110, 40)) as pilot:
+            app.log_line = logs.append
+            app.action_enable()
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            self.assertTrue(any("复位未获应答" in message for message in logs), logs)
+            self.assertIsNotNone(app.client)   # closed=False -> 不误断连
+
+    async def test_profile_switch_reset_no_response_disconnects_when_closed(self):
+        # 复位无应答且传输层已失效（closed=True）→ 记 apply_reset_failed 并清理会话。
+        app = build_app()(language="zh")
+        app.client = SimpleNamespace(disconnect=AsyncMock())
+        app.sim = SimpleNamespace(enable_profile=AsyncMock(return_value=True),
+                                  get_profiles=AsyncMock(return_value=[]))
+        app.euicc = SimpleNamespace(reset=AsyncMock(return_value=False), t=SimpleNamespace(closed=True))
+        app._profiles = [{"iccid": "8901", "profileState": "OFF",
+                          "profileNickname": "Test", "profileClass": "test"}]
+        logs = []
+        async with app.run_test(size=(110, 40)) as pilot:
+            app.log_line = logs.append
+            app.action_enable()
+            await pilot.pause()
+            await app.workers.wait_for_complete()
+            self.assertTrue(any("复位未获应答" in message for message in logs), logs)
+            self.assertIsNone(app.client)   # closed=True -> 已清理会话
 
     async def test_connection_initialization_failure_disconnects(self):
         app = build_app()(language="en")

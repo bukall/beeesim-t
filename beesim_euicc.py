@@ -138,20 +138,18 @@ class Euicc:
         """A0 3F 00 00 00 — soft reset of the eUICC (re-does ATR/refresh).
 
         Best-effort: the card often drops BLE or stops answering while resetting,
-        so a failure is logged and swallowed rather than raised (the official Web
-        reset() likewise wraps the send in try/catch). Returns True only when the
-        card answered 90 00; callers after a write may ignore the result, but an
-        explicit reset should surface False (the card may already have disconnected).
-        The session is always marked uninitialized afterwards.
+        so a communication failure is logged and swallowed rather than raised.
+        Returns True if the card acknowledged with *any* status word (the official
+        Web reset() likewise never inspects the SW, utils:2646-2667), and False
+        only when no response was received (timeout/disconnect). Callers after a
+        write may ignore the result; an explicit reset should surface False as
+        "not acknowledged". The session is always marked uninitialized afterwards.
         """
         try:
-            r = await self.send_command(bytes([0xA0, 0x3F, 0x00, 0x00, 0x00]), reinit_on_6881=False)
-            ok = r[-2:] == b"\x90\x00"
-            if not ok:
-                self._log("reset returned", b2h(r))
-            return ok
+            await self.send_command(bytes([0xA0, 0x3F, 0x00, 0x00, 0x00]), reinit_on_6881=False)
+            return True
         except Exception as exc:
-            self._log("reset failed (ignored; reconnect if needed):", exc)
+            self._log("reset failed (no response; reconnect if needed):", exc)
             return False
         finally:
             self.inited = False
@@ -402,7 +400,9 @@ class BeeSim:
             raise RuntimeError("ListNotification failed: " + b2h(raw))
         root = nodes[0]["value"]
         if not isinstance(root, list):
-            return []   # 官方 Ee 的 Array.isArray 守卫：primitive 根静默返回空列表
+            # 防御性分支（当前不可达）：官方 Ee 的 Array.isArray 守卫对 primitive 根静默返回 []。
+            # 但 parse_tlv 下 0xBF 恒为 constructed、root 恒为 list，故实际走不到；保留以防解析器放宽。
+            return []
         if not root:
             return []   # 空 BF28：无待发通知（A0 是 OPTIONAL，官方返回空列表）
         for child in root:
@@ -533,7 +533,7 @@ class BeeSim:
                     if len(response) < 4 or (response[0] != 0x10 and response[3] != 1):
                         raise RuntimeError(f"Firmware write failed at {index}/{total}: {b2h(response)}")
                     log(f"{index}/{total}")
-                await self.e.reset()
+                return await self.e.reset()   # 返回复位是否获应答（固件属高危，调用方应提示）
             finally:
                 self.e.delay_over_counter = previous
 

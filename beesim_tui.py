@@ -385,8 +385,14 @@ def build_app():
                     # 官方顺序：Enable/Disable → 刷新列表（连接仍在）→ reset。先刷新可
                     # 避免复位掉线后读不到列表；刷新失败仅记日志，不把已成功的切换误报为失败。
                     await self._refresh_soft()
-                    ok = await self.euicc.reset() if self.euicc else False   # 刷新可能已掉线清理
+                    if not self.euicc:                         # 刷新时已掉线清理，未执行复位
+                        self.log_line(self.tr("apply_reset_skipped"))
+                        return
+                    ok = await self.euicc.reset()
                     self.log_line(self.tr("apply_reset" if ok else "apply_reset_failed"))
+                    if not ok and getattr(self.euicc.t, "closed", False):
+                        await self._disconnect()               # 复位无应答且传输层失效，清理会话
+                        self._render_status()
                 self._start(action, perform)
 
         def action_enable(self):
@@ -569,8 +575,8 @@ def build_app():
                         if progress["totalRows"] and progress["currentRow"] < progress["totalRows"]:
                             question += "\n" + self.tr("firmware_overwrite_warning", row=progress["currentRow"], total=progress["totalRows"])
                     async def perform():
-                        await self.sim.download_firmware(rows, len(content["rows"]), start, self.log_line)
-                        self.log_line(self.tr("reset_sent"))
+                        reset_ok = await self.sim.download_firmware(rows, len(content["rows"]), start, self.log_line)
+                        self.log_line(self.tr("reset_sent" if reset_ok else "reset_failed"))
                         await self._disconnect()
                     # Open after the check worker releases its busy flag.
                     self.call_after_refresh(lambda: self.push_screen(ConfirmScreen(question, self.language),

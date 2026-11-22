@@ -63,6 +63,7 @@ TEXT = {
     "failed": ("{action}失败：{error}", "{action} failed: {error}"),
     "apply_reset": ("操作成功；复位芯片后生效。", "Operation succeeded; reset the card to apply."),
     "apply_reset_failed": ("切换成功，但复位未获应答（可能已掉线）；请按 s 重连后确认。", "Switch succeeded but reset was not acknowledged (may have disconnected); reconnect with s and verify."),
+    "apply_reset_skipped": ("切换成功，但连接已断开，未执行复位；请按 s 重连后确认。", "Switch succeeded but the connection dropped before reset; reconnect with s and verify."),
     "delete_question": ("删除配置 {iccid}？此操作无法撤销。", "Delete profile {iccid}? This cannot be undone."),
     "rename_question": ("配置 {iccid} 的新名称", "New nickname for {iccid}"),
     "nickname": ("配置昵称", "Profile nickname"),

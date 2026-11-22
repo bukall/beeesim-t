@@ -43,21 +43,24 @@ if TYPE_CHECKING:
     from beesim_euicc import BeeSim, Euicc
 
 
-def _fields(response: dict, *names: str) -> tuple:
+def _fields(response: dict, *names: str, strict: bool = True) -> tuple:
     """Extract required ES9+ response fields, raising a clear error if the
     response is not a dict or a field is missing (a malformed/changed proxy
-    response must not escape as KeyError/TypeError)."""
+    response must not escape as KeyError).
+
+    strict=True (default) additionally requires the values to be strings, since
+    these are base64-decoded; pass strict=False for pass-through fields such as
+    transactionId that are only echoed back and may legitimately be a number."""
     if not isinstance(response, dict):
         raise RuntimeError("ES9+ response is not a JSON object")
     missing = [name for name in names if name not in response]
     if missing:
         raise RuntimeError("ES9+ response missing field(s): " + ", ".join(missing))
     values = tuple(response[name] for name in names)
-    # 这些字段都是 base64/字符串；非字符串（None/数字）会让 b64d 抛 TypeError，
-    # 在此提前转为带字段名的明确错误。
-    bad = [name for name, value in zip(names, values) if not isinstance(value, str)]
-    if bad:
-        raise RuntimeError("ES9+ response field(s) not a string: " + ", ".join(bad))
+    if strict:
+        bad = [name for name, value in zip(names, values) if not isinstance(value, str)]
+        if bad:
+            raise RuntimeError("ES9+ response field(s) not a string: " + ", ".join(bad))
     return values
 
 
@@ -84,8 +87,9 @@ async def download_profile(sim: "BeeSim", euicc: "Euicc", smdp: str, matching_id
             log("Authenticating server…")
             first = await gateway.execute("initiateAuthentication", smdp, sim.protocol,
                                           {"euiccChallenge": b64e(challenge), "euiccInfo1": b64e(h2b(info["raw"]))})
-            transaction, signed1, signature1, ci_pk, certificate1 = _fields(
-                first, "transactionId", "serverSigned1", "serverSignature1", "euiccCiPKIdToBeUsed", "serverCertificate")
+            transaction, = _fields(first, "transactionId", strict=False)   # 仅透传，可为非字符串
+            signed1, signature1, ci_pk, certificate1 = _fields(
+                first, "serverSigned1", "serverSignature1", "euiccCiPKIdToBeUsed", "serverCertificate")
             auth = await sim.authenticate_server(b64d(signed1), b64d(signature1),
                                                  b64d(ci_pk), b64d(certificate1), matching_id)
             log("Authenticating client…")

@@ -273,7 +273,9 @@ class BeeSIMClient:
         ``reset=True``（默认）在成功后发送软复位（``A0 3F``）让配置生效——
         官方 Web 在 EnableProfile 后同样跟一次 reset；CLI 与 TUI
         也走这条路径。传 ``reset=False`` 可跳过复位（例如批量操作后自行统一复位）。
-        返回 True 表示成功；卡片返回「已启用」(02) 也视为成功。
+
+        **返回值只代表 EnableProfile 成功**（卡片返回「已启用」(02) 也视为成功）；
+        随后的软复位是尽力而为，复位失败不会改变返回值（需自行处理请用 ``reset()``）。
         """
         self._ensure_open()
         ok = bool(await self._sim.enable_profile(iccid))
@@ -284,7 +286,8 @@ class BeeSIMClient:
     async def disable(self, iccid: str, *, reset: bool = True) -> bool:
         """停用配置。⚠ 会改变卡片状态；reset 语义同 :meth:`enable`。
 
-        官方 Web 在 DisableProfile 后同样跟一次 reset。
+        官方 Web 在 DisableProfile 后同样跟一次 reset。返回值只代表 DisableProfile
+        成功，随后的软复位是尽力而为、失败不改变返回值。
         """
         self._ensure_open()
         ok = bool(await self._sim.disable_profile(iccid))
@@ -386,10 +389,10 @@ class BeeSIMClient:
                 raise ValueError("Firmware progress does not match this file")
             start = progress["currentRow"] + 1
         if start > len(rows):
-            return {"status": "already-complete", "start": start, "rows": 0, "totalRows": len(rows)}
+            return {"status": "already-complete", "start": start, "rows": 0, "totalRows": len(rows), "reset": None}
         pending = rows[start - 1:]
-        await self._sim.download_firmware(pending, len(rows), start, log or _QUIET)
-        return {"status": "written", "start": start, "rows": len(pending), "totalRows": len(rows)}
+        reset_ok = await self._sim.download_firmware(pending, len(rows), start, log or _QUIET)
+        return {"status": "written", "start": start, "rows": len(pending), "totalRows": len(rows), "reset": bool(reset_ok)}
 
     # --- 下载安装 -----------------------------------------------------------
     async def download(self, activation_code: str, *, confirm_code: Optional[str] = None,

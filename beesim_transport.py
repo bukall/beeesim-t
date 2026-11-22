@@ -141,33 +141,42 @@ async def connect(address: Optional[str] = None, debug: bool = False, *,
     if BleakClient is None:
         raise RuntimeError("bleak is not installed. Run: pip install bleak")
 
-    async def _attempt():
-        device = None
-        if address is None:
-            if log:
-                log("Scanning for BeeSIM…")
-            else:
-                print(f"Scanning for '{NAME_PREFIX}*' ...", file=sys.stderr)
-            device = await BleakScanner.find_device_by_filter(
-                lambda d, ad: (d.name or "").startswith(NAME_PREFIX), timeout=15.0)
-            if not device:
-                raise RuntimeError("No BeeSIM device found")
-            addr = device.address
-            if not log:
-                print(f"Found {device.name} @ {addr}", file=sys.stderr)
+    # --- 解析设备对象（只做一次；避免重试时重复扫描，设备未广播时也快速失败）---
+    device = None
+    if address is None:
+        if log:
+            log("Scanning for BeeSIM…")
         else:
-            # Windows/WinRT：用裸地址做 GATT 服务发现可能挂起/超时（卡片换卡槽断电、
-            # GATT 缓存失效后尤甚）。先把地址解析成刚扫描到的 BLEDevice 对象再连接。
-            addr = address
-            device = await BleakScanner.find_device_by_address(address, timeout=15.0)
+            print(f"Scanning for '{NAME_PREFIX}*' ...", file=sys.stderr)
+        device = await BleakScanner.find_device_by_filter(
+            lambda d, ad: (d.name or "").startswith(NAME_PREFIX), timeout=15.0)
+        if not device:
+            raise RuntimeError("No BeeSIM device found")
+        addr = device.address
+        if not log:
+            print(f"Found {device.name} @ {addr}", file=sys.stderr)
+    else:
+        # Windows/WinRT：用裸地址做 GATT 服务发现可能挂起/超时（卡片换卡槽断电、
+        # GATT 缓存失效后尤甚）。先短暂扫描把地址解析成 BLEDevice 对象再连接；未广播
+        # （被其它连接占用/未上电）则快速失败，不做裸地址连接的长等待。
+        addr = address
+        find = getattr(BleakScanner, "find_device_by_address", None)
+        if find is not None:
+            device = await find(address, timeout=5.0)
+            if device is None:
+                raise RuntimeError(f"No BeeSIM device found at {address}")
+
+    transport = euicc = None
+
+    def disconnected(client):
+        if transport:
+            transport.disconnected(client)
+        if euicc:
+            euicc.inited = False
+
+    async def _open():
+        nonlocal transport, euicc
         transport = euicc = None
-
-        def disconnected(client):
-            if transport:
-                transport.disconnected(client)
-            if euicc:
-                euicc.inited = False
-
         # 传 BLEDevice 对象（而非裸地址字符串）：WinRT 借此复用刚发现的设备上下文，
         # 避免裸地址 GATT 发现挂起（TimeoutError / WinError -2147023673）。
         client = BleakClient(device if device is not None else addr,
@@ -199,11 +208,11 @@ async def connect(address: Optional[str] = None, debug: bool = False, *,
             raise
 
     # 卡片断电重启（换卡槽）后 Windows/WinRT 连接可能瞬时失败（超时/初始化掉线/设备
-    # 暂不可达）；重试几次通常即可恢复，与官方网页的重连效果一致。设备未广播
-    # （No BeeSIM device found，多为被其它连接占用或未上电）是 RuntimeError，不在此重试。
+    # 暂不可达）；仅对"连接 + 会话建立"重试几次，与官方网页的重连效果一致。设备解析
+    # 已在上面一次性完成，扫描失败（无适配器/未广播）不在此重试。
     for attempt in range(3):
         try:
-            return await _attempt()
+            return await _open()
         except _BLE_RETRY_ERRORS as exc:
             if attempt == 2:
                 raise

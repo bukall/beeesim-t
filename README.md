@@ -83,7 +83,8 @@ python beesim.py txpower 4             # 0=最小 .. 4=最大
 python beesim.py --help                # 完整命令列表
 ```
 
-全局参数：`--debug`（把全部 APDU 打到 stderr）、`--address`、`--timeout`、
+全局参数：`--debug`（把全部 APDU 打到 stderr）、`--address`（先用短暂扫描把地址解析成
+设备对象再连接，避免 Windows 裸地址 GATT 发现挂起；省略则按名称扫描）、`--timeout`、
 `--store-max-lc`、`--channel`、`--delay-over-counter`、`--rsp-transport web|direct`。
 
 ### Terminal UI

@@ -492,6 +492,10 @@ def parse_activation_code(code: str) -> Tuple[str, str, str]:
     match = re.match(r"1\$([A-Za-z0-9\-.]+)(?:\$([A-Za-z0-9\-]+))?(?:\$\$([0-9A-Za-z\-]+))?", code)
     if not match:
         raise ValueError("bad activation code; expected LPA:1$smdp$matchingId[$$confirmationCode]")
+    # 官方非锚定 match 会把误粘贴的 http(s):// URL 截成 "https"；这里显式拦截，
+    # 避免把错误推迟到 DNS/HTTP 层（真实 QR 以 LPA: 开头，SM-DP+ 地址不含 scheme）。
+    if code[match.end(1):match.end(1) + 3] == "://":
+        raise ValueError("SM-DP+ 地址不应包含 http(s):// 前缀")
     return match.group(1), match.group(2) or "", match.group(3) or ""
 
 

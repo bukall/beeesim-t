@@ -2,7 +2,7 @@ import asyncio
 from collections import deque
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 from beesim_euicc import BeeSim, Euicc
 from beesim_protocol import SERVICE_UUID, _parse_profile, capacity_data, describe_capacity, describe_euicc_info, format_capacity_kb, parse_activation_code, parse_firmware_text
@@ -59,6 +59,13 @@ class CodecTests(unittest.TestCase):
         # 空 matchingId / 尾部空 $$ 也被前缀匹配接受（与官方一致）。
         self.assertEqual(parse_activation_code("1$rsp.example.com$"), ("rsp.example.com", "", ""))
         self.assertEqual(parse_activation_code("1$rsp.example.com$match$$"), ("rsp.example.com", "match", ""))
+        # 误粘贴的 http(s):// URL 显式拦截（否则前缀匹配会截成 smdp="https"）。
+        with self.assertRaisesRegex(ValueError, "scheme|前缀|http"):
+            parse_activation_code("1$https://bad/path$abc")
+        with self.assertRaisesRegex(ValueError, "scheme|前缀|http"):
+            parse_activation_code("LPA:1$https://rsp.example.com$MID")
+        # 尾部多余空格文本按官方前缀匹配被忽略（记录该 parity 行为）。
+        self.assertEqual(parse_activation_code("1$rsp.example.com$match extra"), ("rsp.example.com", "match", ""))
         # 非法头部（版本号不是 1 / 完全不是 LPA）仍拒绝。
         with self.assertRaises(ValueError):
             parse_activation_code("2$rsp.example.com$match")
@@ -479,19 +486,39 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ConnectionError):
             await transport.send(b"a")
 
-    async def test_connect_prefers_no_response_and_cleans_failure(self):
+    async def test_connect_uses_scanned_device_and_cleans_failure(self):
         chars = [SimpleNamespace(uuid="write", properties=["write"]),
                  SimpleNamespace(uuid="write-nr", properties=["write-without-response"]),
                  SimpleNamespace(uuid="notify", properties=["notify"])]
         client = SimpleNamespace(connect=AsyncMock(), disconnect=AsyncMock(), start_notify=AsyncMock(),
                                  services=[SimpleNamespace(uuid=SERVICE_UUID, characteristics=chars)])
-        # --address 路径会先扫描解析设备；mock 掉以免触发真实 BLE 扫描（离线/Docker 确定性）。
-        scan = patch("beesim_transport.BleakScanner.find_device_by_address", new=AsyncMock(return_value=None))
-        with patch("beesim_transport.BleakClient", return_value=client), scan:
+        device = SimpleNamespace(address="test", name="BeeSIM-test")
+        scan = patch("beesim_transport.BleakScanner.find_device_by_address", new=AsyncMock(return_value=device))
+        with patch("beesim_transport.BleakClient", return_value=client) as bc, scan:
             _, _, e = await connect("test")
+        bc.assert_called_with(device, disconnected_callback=ANY)   # 传 BLEDevice 对象而非裸地址
         self.assertEqual(e.t.write_uuid, "write-nr")
         self.assertFalse(e.t.write_with_response)
         client.services = []
         with patch("beesim_transport.BleakClient", return_value=client), scan, self.assertRaises(RuntimeError):
             await connect("test")
         client.disconnect.assert_awaited_once()
+
+    async def test_address_not_found_raises_fast(self):
+        # --address 未广播 -> 解析为 None -> 快速失败，不做裸地址长等待。
+        with patch("beesim_transport.BleakScanner.find_device_by_address", new=AsyncMock(return_value=None)):
+            with self.assertRaisesRegex(RuntimeError, "No BeeSIM device found"):
+                await connect("test")
+
+    async def test_connect_retries_transient_failure(self):
+        chars = [SimpleNamespace(uuid="write-nr", properties=["write-without-response"]),
+                 SimpleNamespace(uuid="notify", properties=["notify"])]
+        client = SimpleNamespace(connect=AsyncMock(side_effect=[ConnectionError("drop"), None]),
+                                 disconnect=AsyncMock(), start_notify=AsyncMock(),
+                                 services=[SimpleNamespace(uuid=SERVICE_UUID, characteristics=chars)])
+        device = SimpleNamespace(address="test", name="BeeSIM-test")
+        with patch("beesim_transport.BleakScanner.find_device_by_address", new=AsyncMock(return_value=device)), \
+                patch("beesim_transport.BleakClient", return_value=client), \
+                patch("beesim_transport.asyncio.sleep", new=AsyncMock()):
+            _, _, e = await connect("test")
+        self.assertEqual(client.connect.await_count, 2)   # 第一次瞬时失败后重试成功

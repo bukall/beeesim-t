@@ -38,6 +38,8 @@ class CLIResetTests(unittest.IsolatedAsyncioTestCase):
         euicc = SimpleNamespace(reset=AsyncMock(return_value=False))
         with patch("beesim.connect", new=AsyncMock(return_value=(client, SimpleNamespace(), euicc))), \
                 patch("sys.stderr", new=io.StringIO()) as err:
-            await _run(args)
+            with self.assertRaises(SystemExit) as ctx:   # 失败时非零退出码
+                await _run(args)
+        self.assertNotEqual(ctx.exception.code, 0)
         self.assertIn("reset failed", err.getvalue())   # 显式复位失败要有 stderr 反馈
         euicc.reset.assert_awaited_once()
