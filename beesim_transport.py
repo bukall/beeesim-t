@@ -40,9 +40,12 @@ from beesim_euicc import BeeSim, Euicc
 
 try:
     from bleak import BleakClient, BleakScanner
+    from bleak.exc import BleakError
+    _BLE_RETRY_ERRORS: tuple = (TimeoutError, ConnectionError, OSError, BleakError)
 except ImportError:  # pragma: no cover
     # Optional dependency; the names stay usable as sentinels for "not installed".
     BleakClient = BleakScanner = None  # type: ignore[assignment, misc]
+    _BLE_RETRY_ERRORS = (TimeoutError, ConnectionError, OSError)
 
 # BLE transport layer  (ports of Ye.open / writeBytes / writeGroupBytes / notify)
 # --------------------------------------------------------------------------- #
@@ -137,52 +140,80 @@ async def connect(address: Optional[str] = None, debug: bool = False, *,
                   delay_over_counter=6, log=None) -> Tuple["BleakClient", BeeSim, Euicc]:
     if BleakClient is None:
         raise RuntimeError("bleak is not installed. Run: pip install bleak")
-    if address is None:
-        if log:
-            log("Scanning for BeeSIM…")
+
+    async def _attempt():
+        device = None
+        if address is None:
+            if log:
+                log("Scanning for BeeSIM…")
+            else:
+                print(f"Scanning for '{NAME_PREFIX}*' ...", file=sys.stderr)
+            device = await BleakScanner.find_device_by_filter(
+                lambda d, ad: (d.name or "").startswith(NAME_PREFIX), timeout=15.0)
+            if not device:
+                raise RuntimeError("No BeeSIM device found")
+            addr = device.address
+            if not log:
+                print(f"Found {device.name} @ {addr}", file=sys.stderr)
         else:
-            print(f"Scanning for '{NAME_PREFIX}*' ...", file=sys.stderr)
-        dev = await BleakScanner.find_device_by_filter(
-            lambda d, ad: (d.name or "").startswith(NAME_PREFIX), timeout=15.0)
-        if not dev:
-            raise RuntimeError("No BeeSIM device found")
-        address = dev.address
-        if not log:
-            print(f"Found {dev.name} @ {address}", file=sys.stderr)
-    transport = euicc = None
+            # Windows/WinRT：用裸地址做 GATT 服务发现可能挂起/超时（卡片换卡槽断电、
+            # GATT 缓存失效后尤甚）。先把地址解析成刚扫描到的 BLEDevice 对象再连接。
+            addr = address
+            device = await BleakScanner.find_device_by_address(address, timeout=15.0)
+        transport = euicc = None
 
-    def disconnected(client):
-        if transport:
-            transport.disconnected(client)
-        if euicc:
-            euicc.inited = False
+        def disconnected(client):
+            if transport:
+                transport.disconnected(client)
+            if euicc:
+                euicc.inited = False
 
-    client = BleakClient(address, disconnected_callback=disconnected)
-    try:
-        await client.connect()
-        services = list(client.services)
-        preferred = [s for s in services if s.uuid.lower() == SERVICE_UUID.lower()]
-        candidates = preferred or [s for s in services if getattr(s, "is_primary", True)][:1]
-        chars = [c for service in candidates for c in service.characteristics]
-        writes = [c for c in chars if "write-without-response" in c.properties or "write" in c.properties]
-        writes.sort(key=lambda c: "write-without-response" not in c.properties)
-        notifies = [c for c in chars if "notify" in c.properties or "indicate" in c.properties]
-        if not writes or not notifies:
-            raise RuntimeError("Could not locate write/notify characteristics on AE30 service")
-        write = writes[0]
-        transport = BeeSimTransport(client, write.uuid, notifies[0].uuid,
-                                    write_with_response="write-without-response" not in write.properties,
-                                    timeout=timeout)
-        euicc = Euicc(transport, debug=debug, channel=channel, store_max_lc=store_max_lc,
-                      delay_over_counter=delay_over_counter)
-        await transport.start()
-        return client, BeeSim(euicc), euicc
-    except BaseException:
+        # 传 BLEDevice 对象（而非裸地址字符串）：WinRT 借此复用刚发现的设备上下文，
+        # 避免裸地址 GATT 发现挂起（TimeoutError / WinError -2147023673）。
+        client = BleakClient(device if device is not None else addr,
+                             disconnected_callback=disconnected)
         try:
-            await client.disconnect()
-        except Exception:
-            pass
-        raise
+            await client.connect()
+            services = list(client.services)
+            preferred = [s for s in services if s.uuid.lower() == SERVICE_UUID.lower()]
+            candidates = preferred or [s for s in services if getattr(s, "is_primary", True)][:1]
+            chars = [c for service in candidates for c in service.characteristics]
+            writes = [c for c in chars if "write-without-response" in c.properties or "write" in c.properties]
+            writes.sort(key=lambda c: "write-without-response" not in c.properties)
+            notifies = [c for c in chars if "notify" in c.properties or "indicate" in c.properties]
+            if not writes or not notifies:
+                raise RuntimeError("Could not locate write/notify characteristics on AE30 service")
+            write = writes[0]
+            transport = BeeSimTransport(client, write.uuid, notifies[0].uuid,
+                                        write_with_response="write-without-response" not in write.properties,
+                                        timeout=timeout)
+            euicc = Euicc(transport, debug=debug, channel=channel, store_max_lc=store_max_lc,
+                          delay_over_counter=delay_over_counter)
+            await transport.start()
+            return client, BeeSim(euicc), euicc
+        except BaseException:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            raise
+
+    # 卡片断电重启（换卡槽）后 Windows/WinRT 连接可能瞬时失败（超时/初始化掉线/设备
+    # 暂不可达）；重试几次通常即可恢复，与官方网页的重连效果一致。设备未广播
+    # （No BeeSIM device found，多为被其它连接占用或未上电）是 RuntimeError，不在此重试。
+    for attempt in range(3):
+        try:
+            return await _attempt()
+        except _BLE_RETRY_ERRORS as exc:
+            if attempt == 2:
+                raise
+            msg = f"Connect attempt {attempt + 1} failed ({exc or type(exc).__name__}); retrying…"
+            if log:
+                log(msg)
+            else:
+                print(msg, file=sys.stderr)
+            await asyncio.sleep(2.0)
+    raise RuntimeError("BLE connection failed after retries")   # 不可达；末次尝试已重新抛出
 
 async def read_rssi(client) -> Optional[int]:
     """Best-effort RSSI (dBm) of the *connected* link, or None if unavailable.
