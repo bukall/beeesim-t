@@ -39,7 +39,7 @@ def b2h(data: bytes) -> str:
 
 
 def swap_nibbles(hexstr: str) -> str:
-    """ICCID <-> on-card nibble-swapped form (JS `R`). Pads odd length with 'F'."""
+    """ICCID <-> on-card nibble-swapped form. Pads odd length with 'F'."""
     if len(hexstr) % 2:
         hexstr += "F"
     return "".join(hexstr[i + 1] + hexstr[i] for i in range(0, len(hexstr), 2))
@@ -58,7 +58,7 @@ def der_len(n: int) -> bytes:
 
 
 def tlv(tag, *children: bytes) -> bytes:
-    """Build a BER-TLV (port of JS `H`): tag + length + concatenated children.
+    """Build a BER-TLV: tag + length + concatenated children.
 
     `tag` may be an int (single byte) or a bytes/list of tag bytes.
     """
@@ -71,7 +71,7 @@ def tlv(tag, *children: bytes) -> bytes:
 
 
 def parse_tlv(data: bytes, start: int = 0, end: Optional[int] = None) -> list:
-    """Recursive BER-TLV parser (port of JS `K`). Returns a list of nodes:
+    """Recursive BER-TLV parser. Returns a list of nodes:
     {tag: 'HEX', length: int, value: bytes|list}. Constructed tags nest a list."""
     if end is None:
         end = len(data)
@@ -141,7 +141,7 @@ def _tlv_response_complete(data: bytes) -> bool:
 
 
 def find_tag(nodes: list, *tags: str):
-    """Depth-first search through parsed TLV for a tag path (port of `be`/`ye`).
+    """Depth-first search through parsed TLV for a tag path.
     Returns the matching node's value (bytes for primitive, list for constructed)."""
     current = nodes
     node = None
@@ -170,7 +170,7 @@ def _find_one(nodes: list, want: str):
 
 
 def serialize_tlv(node: dict) -> str:
-    """Serialize a parsed node back to hex (port of JS `Ce`)."""
+    """Serialize a parsed node back to hex."""
     if isinstance(node["value"], str):  # already-hex primitive (unused here)
         v = node["value"]
     elif isinstance(node["value"], bytes):

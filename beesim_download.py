@@ -52,7 +52,13 @@ def _fields(response: dict, *names: str) -> tuple:
     missing = [name for name in names if name not in response]
     if missing:
         raise RuntimeError("ES9+ response missing field(s): " + ", ".join(missing))
-    return tuple(response[name] for name in names)
+    values = tuple(response[name] for name in names)
+    # 这些字段都是 base64/字符串；非字符串（None/数字）会让 b64d 抛 TypeError，
+    # 在此提前转为带字段名的明确错误。
+    bad = [name for name, value in zip(names, values) if not isinstance(value, str)]
+    if bad:
+        raise RuntimeError("ES9+ response field(s) not a string: " + ", ".join(bad))
+    return values
 
 
 async def download_profile(sim: "BeeSim", euicc: "Euicc", smdp: str, matching_id: str = "",

@@ -47,7 +47,7 @@ except ImportError:  # pragma: no cover
     BleakClient = BleakScanner = None  # type: ignore[assignment, misc]
     _BLE_RETRY_ERRORS = (TimeoutError, ConnectionError, OSError)
 
-# BLE transport layer  (ports of Ye.open / writeBytes / writeGroupBytes / notify)
+# BLE transport layer  (connect / write bytes / grouped write / notify reassembly)
 # --------------------------------------------------------------------------- #
 class BeeSimTransport:
     """Low-level BLE link: discovers the AE30 service, chunk-frames APDUs out and

@@ -174,3 +174,45 @@ class DownloadTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "missing field"):
             await download_profile(sim, e, "rsp.example.com", gateway=gateway, log=lambda _: None)
         self.assertEqual(e.set_tx_power.call_args_list[-1].args, (1,))   # 仍恢复功率
+
+    async def test_download_rejects_non_string_field(self):
+        e, sim, gateway = self.make_download()
+        gateway.execute.side_effect = [{"transactionId": "1234", "serverSigned1": None,
+                                        "serverSignature1": "Yg==", "euiccCiPKIdToBeUsed": "Yw==",
+                                        "serverCertificate": "ZA=="}]
+        with self.assertRaisesRegex(RuntimeError, "not a string"):
+            await download_profile(sim, e, "rsp.example.com", gateway=gateway, log=lambda _: None)
+
+
+class DirectRSPTests(unittest.IsolatedAsyncioTestCase):
+    async def test_direct_rsp_url_status_and_tls(self):
+        from beesim_web import DirectRSP
+        captured = {}
+        responses = iter([
+            {"header": {"functionExecutionStatus": {"status": "Executed-WithWarning"}}, "ok": 1},
+            {"header": {"functionExecutionStatus": {"status": "Failed"}}},
+        ])
+
+        class FakeResponse:
+            def __init__(self, data):
+                self._data = data
+            def __enter__(self):
+                return io.BytesIO(json.dumps(self._data).encode())
+            def __exit__(self, *args):
+                return False
+
+        def fake_urlopen(request, timeout=None, context=None):
+            captured["url"] = request.full_url
+            captured["protocol"] = request.get_header("X-admin-protocol")
+            captured["context"] = context
+            return FakeResponse(next(responses))
+
+        with patch("urllib.request.urlopen", new=fake_urlopen):
+            value = await DirectRSP().execute("initiateAuthentication", "rsp.example.com",
+                                              "gsma/rsp/v2.2.2", {"euiccChallenge": "AQ=="})
+            self.assertEqual(value["ok"], 1)                       # WithWarning 接受
+            self.assertEqual(captured["url"], "https://rsp.example.com/gsma/rsp2/es9plus/initiateAuthentication")
+            self.assertEqual(captured["protocol"], "gsma/rsp/v2.2.2")
+            self.assertIsNone(captured["context"])                 # 默认校验上下文，未禁用 TLS
+            with self.assertRaisesRegex(RuntimeError, "Failed"):   # Failed 拒绝
+                await DirectRSP().execute("handleNotification", "rsp.example.com", "gsma/rsp/v2.2.2", {})
