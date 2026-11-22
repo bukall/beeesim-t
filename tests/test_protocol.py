@@ -485,11 +485,13 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                  SimpleNamespace(uuid="notify", properties=["notify"])]
         client = SimpleNamespace(connect=AsyncMock(), disconnect=AsyncMock(), start_notify=AsyncMock(),
                                  services=[SimpleNamespace(uuid=SERVICE_UUID, characteristics=chars)])
-        with patch("beesim_transport.BleakClient", return_value=client):
+        # --address 路径会先扫描解析设备；mock 掉以免触发真实 BLE 扫描（离线/Docker 确定性）。
+        scan = patch("beesim_transport.BleakScanner.find_device_by_address", new=AsyncMock(return_value=None))
+        with patch("beesim_transport.BleakClient", return_value=client), scan:
             _, _, e = await connect("test")
         self.assertEqual(e.t.write_uuid, "write-nr")
         self.assertFalse(e.t.write_with_response)
         client.services = []
-        with patch("beesim_transport.BleakClient", return_value=client), self.assertRaises(RuntimeError):
+        with patch("beesim_transport.BleakClient", return_value=client), scan, self.assertRaises(RuntimeError):
             await connect("test")
         client.disconnect.assert_awaited_once()

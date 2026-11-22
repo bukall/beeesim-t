@@ -86,8 +86,8 @@ ISDR_AID = bytes.fromhex("A0000005591010FFFFFFFF8900000100")
 #   temporarily set the latter. 0 disables throttling.
 # --------------------------------------------------------------------------- #
 STORE_MAX_LC = 120          # Web 2.3.6 default; distinct from 18-byte BLE groups
-GROUP_PAYLOAD = 18          # bytes of APDU per BLE packet          (groupValue)
-LOGICAL_CHANNEL = 1         # fixed logical channel                 (pe.channel)
+GROUP_PAYLOAD = 18          # bytes of APDU per BLE packet
+LOGICAL_CHANNEL = 1         # fixed logical channel
 
 
 # --------------------------------------------------------------------------- #
@@ -290,7 +290,7 @@ def describe_euicc_info(info: dict, language: str = "zh", title: Optional[str] =
 # --------------------------------------------------------------------------- #
 # 剩余可用容量与近似总容量
 #
-# 剩余容量（官方 Web「查看剩余可用容量」，本地 src/ JS 函数 S / toExtCardResource）：
+# 剩余容量（官方 Web「查看剩余可用容量」，官方 toExtCardResource，见 src-beautified/utils-v_n99D2T.js）：
 #   await GetEUICCInfo2() -> extCardResource.freeNonVolatileMemory
 #   -> (bytes / 1024).toFixed(2) + "KB"
 #

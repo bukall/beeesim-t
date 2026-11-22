@@ -101,11 +101,13 @@ async def _run(args):
             print(json.dumps(profiles, indent=2, ensure_ascii=False))
         elif args.command == "enable":
             await sim.enable_profile(args.iccid)   # True 或抛异常；失败由 main 统一报错
-            await euicc.reset()
+            if not await euicc.reset():
+                print("enabled; reset not acknowledged (reconnect to verify)", file=sys.stderr)
             print("OK")
         elif args.command == "disable":
             await sim.disable_profile(args.iccid)
-            await euicc.reset()
+            if not await euicc.reset():
+                print("disabled; reset not acknowledged (reconnect to verify)", file=sys.stderr)
             print("OK")
         elif args.command == "delete":
             await sim.delete_profile(args.iccid)

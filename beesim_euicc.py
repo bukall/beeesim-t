@@ -167,7 +167,7 @@ class Euicc:
             }
         raise RuntimeError("check_upgrading failed: " + b2h(r))
 
-    # --- logical channel + ISD-R select (port of openChannel/selectApplication)
+    # --- logical channel + ISD-R select
     async def open_channel(self):
         ch = self.channel
         await self.send_command(bytes([0x00, 0x70, 0x80, ch, 0x00]), reinit_on_6881=False)  # close ch
@@ -197,7 +197,7 @@ class Euicc:
             await self.select_isdr()
             self.inited = True
 
-    # --- GET RESPONSE loop (port of readBytesFromEUICC) -----------------------
+    # --- GET RESPONSE loop ----------------------------------------------------
     async def get_response(self, le: int) -> bytes:
         async with self.transaction():
             return await self._get_response(le)
@@ -236,7 +236,7 @@ class Euicc:
                 raise RuntimeError("GET RESPONSE error: " + b2h(r))
         raise RuntimeError("GET RESPONSE exceeded response limit")
 
-    # --- STORE DATA chaining (port of storeBytesToEUICC) ----------------------
+    # --- STORE DATA chaining --------------------------------------------------
     async def store_bytes(self, data: bytes) -> bytes:
         async with self.transaction():
             return await self._store_bytes(data)
@@ -270,7 +270,7 @@ class Euicc:
             raise RuntimeError("STORE DATA error: " + b2h(r))
 
     async def store_and_read(self, data: bytes) -> bytes:
-        """Send an ES10 command TLV and return its full response TLV (port of storeAndReadBytes)."""
+        """Send an ES10 command TLV and return its full response TLV."""
         async with self.transaction():
             await self.init()
             r = await self.store_bytes(data)

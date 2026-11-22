@@ -77,7 +77,7 @@ class BeeSimTransport:
         if self._future and not self._future.done():
             self._future.set_exception(ConnectionError("BLE disconnected; reconnect the card"))
 
-    # --- notification reassembly (port of toInitNotification handler) ---------
+    # --- notification reassembly ----------------------------------------------
     def _on_notify(self, _char, data: bytearray):
         if self._future is None or self._future.done():
             return
@@ -98,7 +98,7 @@ class BeeSimTransport:
     async def start(self):
         await self.client.start_notify(self.notify_uuid, self._on_notify)
 
-    # --- outbound framing (port of groupValue + writeGroupBytes) --------------
+    # --- outbound framing -----------------------------------------------------
     async def send(self, apdu: bytes, timeout: Optional[float] = None) -> bytes:
         async with self._lock:
             if self._closed:

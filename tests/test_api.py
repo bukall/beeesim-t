@@ -72,6 +72,13 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
         card._euicc.t = SimpleNamespace(closed=True)   # 超时/断连使传输层失效
         self.assertTrue(card.closed)
 
+    async def test_reset_returns_bool(self):
+        card = make_client()
+        card._euicc.reset = AsyncMock(return_value=True)
+        self.assertTrue(await card.reset())
+        card._euicc.reset = AsyncMock(return_value=False)
+        self.assertFalse(await card.reset())
+
     async def test_connect_card_shares_gateway_and_validates_settings(self):
         from beesim_web import WebAPI
         fake_connect = AsyncMock(return_value=(

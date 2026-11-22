@@ -385,9 +385,8 @@ def build_app():
                     # 官方顺序：Enable/Disable → 刷新列表（连接仍在）→ reset。先刷新可
                     # 避免复位掉线后读不到列表；刷新失败仅记日志，不把已成功的切换误报为失败。
                     await self._refresh_soft()
-                    if self.euicc:                # 刷新可能因掉线清理了连接
-                        await self.euicc.reset()  # 复位尽力而为，可能掉线
-                    self.log_line(self.tr("apply_reset"))
+                    ok = await self.euicc.reset() if self.euicc else False   # 刷新可能已掉线清理
+                    self.log_line(self.tr("apply_reset" if ok else "apply_reset_failed"))
                 self._start(action, perform)
 
         def action_enable(self):
