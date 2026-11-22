@@ -1,8 +1,10 @@
+import io
 import subprocess
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from beesim import main
 
@@ -25,3 +27,17 @@ class CLITests(unittest.TestCase):
                 main()
                 expected = None if len(arguments) == 1 else arguments[-1]
                 self.assertEqual(run.call_args.args[1], expected)
+
+
+class CLIResetTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reset_failure_warns_on_stderr(self):
+        from beesim import _run
+        args = SimpleNamespace(command="reset", address=None, debug=False, timeout=30.0,
+                               channel=1, store_max_lc=120, delay_over_counter=6, rsp_transport="web")
+        client = SimpleNamespace(disconnect=AsyncMock())
+        euicc = SimpleNamespace(reset=AsyncMock(return_value=False))
+        with patch("beesim.connect", new=AsyncMock(return_value=(client, SimpleNamespace(), euicc))), \
+                patch("sys.stderr", new=io.StringIO()) as err:
+            await _run(args)
+        self.assertIn("reset failed", err.getvalue())   # 显式复位失败要有 stderr 反馈
+        euicc.reset.assert_awaited_once()

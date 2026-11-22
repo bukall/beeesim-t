@@ -169,11 +169,14 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         app.euicc = SimpleNamespace(reset=AsyncMock(), t=SimpleNamespace(closed=True))
         app._profiles = [{"iccid": "8901", "profileState": "OFF",
                           "profileNickname": "Test", "profileClass": "test"}]
+        logs = []
         async with app.run_test(size=(110, 40)) as pilot:
+            app.log_line = logs.append
             app.action_enable()
             await pilot.pause()
             await app.workers.wait_for_complete()
-            self.assertIsNone(app.client)            # closed=True -> 已断连清理
+            self.assertIsNone(app.client)
+            self.assertTrue(any("复位未获应答" in message for message in logs), logs)   # apply_reset_failed 文案            # closed=True -> 已断连清理
 
     async def test_connection_initialization_failure_disconnects(self):
         app = build_app()(language="en")
