@@ -148,7 +148,7 @@ class BeeSIMClient:
 
     # --- 生命周期 -----------------------------------------------------------
     def _ensure_open(self) -> None:
-        if self._closed:
+        if self.closed:   # 含传输层超时/断连失效，而非仅显式 close()
             raise RuntimeError("BeeSIM client is closed; call connect_card() again")
 
     @property
@@ -307,10 +307,14 @@ class BeeSIMClient:
         self._ensure_open()
         return bool(await self._sim.set_nickname(iccid, nickname))
 
-    async def reset(self) -> None:
-        """软复位 eUICC（A0 3F），让手机重新识别配置。⚠ 会短暂中断网络。"""
+    async def reset(self) -> bool:
+        """软复位 eUICC（A0 3F），让手机重新识别配置。⚠ 会短暂中断网络。
+
+        尽力而为：返回 True 表示卡片应答 90 00；失败（含复位时掉线）返回 False，
+        不抛异常。调用方据此提示用户重连。
+        """
         self._ensure_open()
-        await self._euicc.reset()
+        return await self._euicc.reset()
 
     async def set_tx_power(self, level: int) -> None:
         """设置 BLE 发射功率 0..4。⚠ 0=最小、4=最大；改错可能导致连不上。"""

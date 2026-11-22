@@ -92,7 +92,7 @@ LOGICAL_CHANNEL = 1         # fixed logical channel                 (pe.channel)
 
 # --------------------------------------------------------------------------- #
 
-# Profile-info parsing (port of Re/ze)
+# Profile-info parsing (GetProfilesInfo 的 ProfileInfo(E3) 解析)
 # --------------------------------------------------------------------------- #
 
 def _parse_profile(e3: dict) -> dict:
@@ -477,15 +477,19 @@ def parse_installation_result(raw):
 def parse_activation_code(code: str) -> Tuple[str, str, str]:
     """LPA:1$<smdp>[$<matchingId>][$$<confirmationCode>] -> (smdp, matchingId, confirmationCode)。
 
-    与官方 Web v2.3.6 的 LPA_REG 一致：matchingId 在单个 `$` 后，confirmationCode 在
-    双 `$$` 后，且第三段是**实际确认码值**（不是布尔标志）。各段字符集也按官方正则
-    校验。确认码是否*必填*由 PrepareDownload 的服务端签名数据（tag 01 === FF）判定，
-    不来自激活码本身；激活码里嵌入的确认码会被预填/直接使用。
+    与官方 Web v2.3.6 的 LPA_REG + String.match 一致：用**前缀匹配**（非 fullmatch），
+    matchingId 在单个 `$` 后、confirmationCode 在双 `$$` 后且为实际确认码值（非布尔）。
+    尾部附加段（如 SGP.22 的 $oid/$flag）按官方做法静默忽略；含 OID 段时其后的确认码
+    同样会被官方截断丢失。各段字符集按官方正则校验。确认码是否*必填*由 PrepareDownload
+    的服务端签名数据（tag 01 === FF）判定，不来自激活码本身。
+
+    注意：返回第三位由旧版 bool(ccRequired) 改为 str(confirmationCode 值)，属破坏性
+    签名变更；调用方应把它当确认码值（空串表示无），不要与 True 比较。
     """
     code = code.strip()
     if code.upper().startswith("LPA:"):
         code = code[4:]
-    match = re.fullmatch(r"1\$([A-Za-z0-9\-.]+)(?:\$([A-Za-z0-9\-]+))?(?:\$\$([0-9A-Za-z\-]+))?", code)
+    match = re.match(r"1\$([A-Za-z0-9\-.]+)(?:\$([A-Za-z0-9\-]+))?(?:\$\$([0-9A-Za-z\-]+))?", code)
     if not match:
         raise ValueError("bad activation code; expected LPA:1$smdp$matchingId[$$confirmationCode]")
     return match.group(1), match.group(2) or "", match.group(3) or ""

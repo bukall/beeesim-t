@@ -256,7 +256,10 @@ def build_app():
                 # 回退到公共 bind（可能追加，但不会因内部结构变化而崩溃）。
                 for key, action in self.ACTIONS:
                     self.bind(key, action, description="APDU" if action == "apdu" else self.tr(action))
-            self.refresh_bindings()
+            try:
+                self.refresh_bindings()
+            except AttributeError:  # pragma: no cover - older Textual lacks refresh_bindings
+                pass
             self._render_profiles()
             self._render_status()
             self._render_rssi()
@@ -322,11 +325,15 @@ def build_app():
             from rich.text import Text
             table = self.query_one("#profiles", DataTable)
             table.clear(columns=True)
-            table.add_columns("ICCID", self.tr("state"), self.tr("name"), self.tr("provider"), self.tr("class"))
+            # 与官方配置详情一致：昵称、服务商名称、配置名称(profileName)分列显示。
+            table.add_columns("ICCID", self.tr("state"), self.tr("nickname"), self.tr("provider"),
+                              self.tr("profile_name"), self.tr("class"))
             for item in self._profiles:
                 table.add_row(Text(item.get("iccid", "?")), Text(self.tr("on" if item.get("profileState") == "ON" else "off")),
-                              Text(item.get("profileNickname") or item.get("profileName", "")),
-                              Text(item.get("serviceProviderName", "")), Text(self.tr(item.get("profileClass", "test"))))
+                              Text(item.get("profileNickname", "")),
+                              Text(item.get("serviceProviderName", "")),
+                              Text(item.get("profileName", "")),
+                              Text(self.tr(item.get("profileClass", "test"))))
 
         async def _load_profiles(self):
             self.log_line(self.tr("reading_profiles"))
@@ -375,12 +382,12 @@ def build_app():
             if self._guard() and (iccid := self._selected()):
                 async def perform():
                     await getattr(self.sim, action + "_profile")(iccid)
-                    # 官方 Web 在 Enable/Disable 后跟一次 reset。切换已成功，先记录成功；
-                    # reset 尽力而为，随后刷新——若复位导致蓝牙断开，刷新失败仅记日志，
-                    # 不把已成功的切换误报为失败（重连后可再刷新）。
-                    self.log_line(self.tr("apply_reset"))
-                    await self.euicc.reset()
+                    # 官方顺序：Enable/Disable → 刷新列表（连接仍在）→ reset。先刷新可
+                    # 避免复位掉线后读不到列表；刷新失败仅记日志，不把已成功的切换误报为失败。
                     await self._refresh_soft()
+                    if self.euicc:                # 刷新可能因掉线清理了连接
+                        await self.euicc.reset()  # 复位尽力而为，可能掉线
+                    self.log_line(self.tr("apply_reset"))
                 self._start(action, perform)
 
         def action_enable(self):
@@ -419,8 +426,8 @@ def build_app():
         def action_reset(self):
             if self._guard():
                 async def perform():
-                    await self.euicc.reset()
-                    self.log_line(self.tr("reset_sent"))
+                    ok = await self.euicc.reset()
+                    self.log_line(self.tr("reset_sent" if ok else "reset_failed"))
                     await self._disconnect()
                 self.push_screen(ConfirmScreen(self.tr("reset_question"), self.language),
                                  lambda yes: self._start("reset", perform) if yes else None)

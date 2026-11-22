@@ -48,15 +48,22 @@ class CodecTests(unittest.TestCase):
             parse_tlv(bytes.fromhex("BF3E03"))
 
     def test_activation_codes(self):
-        # 官方 LPA_REG：$$ 段是实际确认码值（非布尔标志），各段字符集受校验。
+        # 官方 LPA_REG + 非锚定 match：$$ 段是实际确认码值；前缀匹配，尾部附加段静默忽略。
         self.assertEqual(parse_activation_code("LPA:1$rsp.example.com$abc$$1"), ("rsp.example.com", "abc", "1"))
         self.assertEqual(parse_activation_code("LPA:1$rsp.example.com$abc$$ABC-123"), ("rsp.example.com", "abc", "ABC-123"))
         self.assertEqual(parse_activation_code("1$rsp.example.com"), ("rsp.example.com", "", ""))
         self.assertEqual(parse_activation_code("1$rsp.example.com$match"), ("rsp.example.com", "match", ""))
+        # 带 OID/flag 段的标准码：官方取前缀、忽略尾部（其后的确认码同样被截断丢失）。
+        self.assertEqual(parse_activation_code("1$rsp.example.com$MATCH$1.3.6.1.4.1.31746$1"), ("rsp.example.com", "MATCH", ""))
+        self.assertEqual(parse_activation_code("1$rsp.example.com$MATCH$oid$$CC1"), ("rsp.example.com", "MATCH", ""))
+        # 空 matchingId / 尾部空 $$ 也被前缀匹配接受（与官方一致）。
+        self.assertEqual(parse_activation_code("1$rsp.example.com$"), ("rsp.example.com", "", ""))
+        self.assertEqual(parse_activation_code("1$rsp.example.com$match$$"), ("rsp.example.com", "match", ""))
+        # 非法头部（版本号不是 1 / 完全不是 LPA）仍拒绝。
         with self.assertRaises(ValueError):
-            parse_activation_code("1$https://bad/path$abc")
+            parse_activation_code("2$rsp.example.com$match")
         with self.assertRaises(ValueError):
-            parse_activation_code("1$rsp.example.com$bad matching id")
+            parse_activation_code("not-an-lpa-code")
 
     def test_firmware_parser(self):
         data = parse_firmware_text("F000FEF00001020304ABCD\nF200\n")
@@ -140,8 +147,9 @@ class InitializationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(sum(call.args == (1.2,) for call in sleep.call_args_list), 1)
 
     async def test_empty_90_00_retries_instead_of_truncating_tlv(self):
-        # The Web bundle retries an empty 90 00: the card may not have the next
-        # GET RESPONSE segment ready yet. Returning early yields a half TLV.
+        # Python-side defensive retry: the card may not have the next GET RESPONSE
+        # segment ready yet; returning early yields a half TLV. (v2.3.6 readApdu
+        # returns immediately on 0x90, so this retry is a defensive extension.)
         e = euicc(["9000"] * 4 + ["6105", "BF3E036103", "9000", "5C015A9000"])
         r = await e.store_and_read(bytes.fromhex("BF3E035C015A"))
         self.assertEqual(r, bytes.fromhex("BF3E035C015A"))
@@ -157,8 +165,12 @@ class InitializationTests(unittest.IsolatedAsyncioTestCase):
                 raise ConnectionError("BLE disconnected")
         e = Euicc(FailingTransport(), delay_over_counter=0)
         e.inited = True
-        await e.reset()                      # must not propagate
+        self.assertFalse(await e.reset())    # 失败返回 False，不抛异常
         self.assertFalse(e.inited)
+        e2 = euicc(["9000"])                 # 成功路径：卡片应答 9000 -> True
+        e2.inited = True
+        self.assertTrue(await e2.reset())
+        self.assertFalse(e2.inited)
 
 
 class InfoExplanationTests(unittest.TestCase):
@@ -417,6 +429,9 @@ class APITests(unittest.IsolatedAsyncioTestCase):
             await BeeSim(e).download_firmware(["F001"], log=lambda _: None)
         self.assertEqual(len(e.t.commands), 1)
         self.assertEqual(e.delay_over_counter, 0)
+        # 官方：a[0]==16 或 a[3]==1 任一成立即成功（仅两者都失败才报错）。
+        e = euicc(["10000000", "9000"])      # [0]=0x10, [3]=0 -> 成功
+        await BeeSim(e).download_firmware(["F001"], log=lambda _: None)
 
 
 class TransportTests(unittest.IsolatedAsyncioTestCase):

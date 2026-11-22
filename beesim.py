@@ -28,6 +28,7 @@ import argparse
 import asyncio
 import json
 import sys
+import traceback
 from pathlib import Path
 
 from beesim_download import download_profile
@@ -113,8 +114,10 @@ async def _run(args):
             await sim.set_nickname(args.iccid, args.nickname)
             print("OK")
         elif args.command == "reset":
-            await euicc.reset()
-            print("reset sent")
+            if await euicc.reset():
+                print("reset sent")
+            else:
+                print("reset failed (card may have disconnected; reconnect and verify)", file=sys.stderr)
         elif args.command == "txpower":
             await euicc.set_tx_power(int(args.level))
             print("tx power set")
@@ -244,6 +247,8 @@ def main():
         try:
             asyncio.run(_run(args))
         except (RuntimeError, ValueError, OSError, KeyError, IndexError, TypeError, AttributeError) + _BLE_ERRORS as exc:
+            if args.debug:
+                traceback.print_exc()   # --debug 下保留完整堆栈，便于定位编程错误
             print(f"Error: {exc or type(exc).__name__}", file=sys.stderr)
             raise SystemExit(1) from None
 

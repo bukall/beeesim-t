@@ -55,7 +55,7 @@ from beesim_tlv import (
 if TYPE_CHECKING:  # avoids a runtime cycle: transport imports this module
     from beesim_transport import BeeSimTransport
 
-# eUICC command layer  (ports of pe/G: channel, SELECT, STORE DATA, GET RESPONSE)
+# eUICC command layer  (logical channel, SELECT, STORE DATA, GET RESPONSE)
 # --------------------------------------------------------------------------- #
 class Euicc:
     def __init__(self, transport: BeeSimTransport, debug: bool = False, *,
@@ -134,19 +134,25 @@ class Euicc:
         if r[-2:] != b"\x90\x00":
             raise RuntimeError("Set TX power failed: " + b2h(r))
 
-    async def reset(self):
+    async def reset(self) -> bool:
         """A0 3F 00 00 00 — soft reset of the eUICC (re-does ATR/refresh).
 
         Best-effort: the card often drops BLE or stops answering while resetting,
-        so a failure is logged and swallowed rather than propagated — the official
-        Web reset() likewise wraps the send in try/catch and only marks the session
-        uninitialized in finally. Propagating here would misreport an already
-        successful enable/disable/firmware-write as failed.
+        so a failure is logged and swallowed rather than raised (the official Web
+        reset() likewise wraps the send in try/catch). Returns True only when the
+        card answered 90 00; callers after a write may ignore the result, but an
+        explicit reset should surface False (the card may already have disconnected).
+        The session is always marked uninitialized afterwards.
         """
         try:
-            await self.send_command(bytes([0xA0, 0x3F, 0x00, 0x00, 0x00]), reinit_on_6881=False)
+            r = await self.send_command(bytes([0xA0, 0x3F, 0x00, 0x00, 0x00]), reinit_on_6881=False)
+            ok = r[-2:] == b"\x90\x00"
+            if not ok:
+                self._log("reset returned", b2h(r))
+            return ok
         except Exception as exc:
             self._log("reset failed (ignored; reconnect if needed):", exc)
+            return False
         finally:
             self.inited = False
 
@@ -274,7 +280,7 @@ class Euicc:
 
 
 # --------------------------------------------------------------------------- #
-# ES10 API — the high-level "APIs" the web app exposes (ports of the `Ve` object)
+# ES10 API — the high-level "APIs" the web app exposes
 # --------------------------------------------------------------------------- #
 # Read-only ES10 commands (tag prefix) that are safe to replay when the card
 # returns an incomplete chained response. State-changing commands and the
@@ -396,7 +402,7 @@ class BeeSim:
             raise RuntimeError("ListNotification failed: " + b2h(raw))
         root = nodes[0]["value"]
         if not isinstance(root, list):
-            raise RuntimeError("ListNotification failed: " + b2h(raw))
+            return []   # 官方 Ee 的 Array.isArray 守卫：primitive 根静默返回空列表
         if not root:
             return []   # 空 BF28：无待发通知（A0 是 OPTIONAL，官方返回空列表）
         for child in root:
@@ -516,14 +522,15 @@ class BeeSim:
         total = len(rows) if total is None else total
         if not rows or not 1 <= start <= total <= 65535 or len(rows) != total - start + 1:
             raise ValueError("Invalid firmware range")
-        # Web M(n) is a big-endian 16-bit field; rows contain the vendor header.
+        # The firmware total-rows field is big-endian 16-bit; rows carry the vendor header.
         async with self.e.transaction():
             previous = self.e.delay_over_counter
             try:
                 self.e.delay_over_counter = 20
                 for index, row in enumerate(rows, start):
                     response = await self.e.send_command(total.to_bytes(2, "big") + index.to_bytes(2, "big") + h2b(row))
-                    if len(response) < 4 or response[0] != 0x10 or response[3] != 1:
+                    # 官方：a[0]!==16 && a[3]!==1 才报错（两者都失败）；任一成立即成功。
+                    if len(response) < 4 or (response[0] != 0x10 and response[3] != 1):
                         raise RuntimeError(f"Firmware write failed at {index}/{total}: {b2h(response)}")
                     log(f"{index}/{total}")
                 await self.e.reset()

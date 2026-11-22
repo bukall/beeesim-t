@@ -51,15 +51,18 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         app = build_app()(language="en")
         async with app.run_test(size=(110, 40)) as pilot:
             await pilot.pause()
+            bindings = getattr(getattr(app, "_bindings", None), "key_to_bindings", None)
+            if bindings is None:
+                self.skipTest("Textual internal BindingsMap unavailable on this version")
             # 英文启动后 Footer 绑定描述应为英文，而非残留类级中文描述。
             self.assertEqual(app.screen.active_bindings["s"].binding.description, "Scan & Connect")
-            count = len(app._bindings.key_to_bindings["s"])
+            count = len(bindings["s"])
             app.action_language()
             await pilot.pause()
             await pilot.click("#lang-zh")
             await pilot.pause()
             self.assertEqual(app.screen.active_bindings["s"].binding.description, "扫描并连接")
-            self.assertEqual(len(app._bindings.key_to_bindings["s"]), count)   # 切换语言不累积绑定
+            self.assertEqual(len(bindings["s"]), count)   # 切换语言不累积绑定
 
     async def test_settings_show_detailed_hints_in_both_languages(self):
         for language, expected in (("zh", "ISO 7816-4"), ("en", "one-byte Lc")):
@@ -89,11 +92,14 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(delete_profile=AsyncMock())
-        app._profiles = [{"iccid": "8901", "profileState": "ON", "profileNickname": "中文[昵称]", "profileClass": "operational"}]
+        app._profiles = [{"iccid": "8901", "profileState": "ON", "profileNickname": "中文[昵称]",
+                          "serviceProviderName": "测试运营商", "profileName": "TestProfile", "profileClass": "operational"}]
         async with app.run_test(size=(110, 40)) as pilot:
             table = app.query_one("#profiles", DataTable)
-            self.assertIn("中文[昵称]", str(table.get_row_at(0)[2]))
+            self.assertIn("中文[昵称]", str(table.get_row_at(0)[2]))      # 昵称列
             self.assertIn("已启用", str(table.get_row_at(0)[1]))
+            self.assertIn("测试运营商", str(table.get_row_at(0)[3]))      # 服务商名称列
+            self.assertIn("TestProfile", str(table.get_row_at(0)[4]))    # 配置名称列（官方亦有）
             app.action_delete()
             await pilot.pause()
             self.assertIn("无法撤销", str(app.screen.query_one("#dialog-q", Label).render()))
