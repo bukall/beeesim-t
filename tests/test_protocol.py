@@ -411,6 +411,17 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "selector"):
             await sim.get_profiles("   ")
 
+    async def test_read_counter_reset_matches_official(self):
+        # 官方仅部分 ES10 方法入口清零；AuthenticateServer 保持累计，SetNickname 清零。
+        e = Euicc(SimpleNamespace(), delay_over_counter=0)
+        sim = BeeSim(e)
+        sim.e.store_and_read = AsyncMock(return_value=b"")
+        e._counter = 7
+        await sim._read(bytes.fromhex("BF3800"))   # AuthenticateServer：不清零
+        self.assertEqual(e._counter, 7)
+        await sim._read(bytes.fromhex("BF2900"))   # SetNickname：入口清零
+        self.assertEqual(e._counter, 0)
+
     async def test_load_bound_profile_package_empty_response_raises(self):
         e = Euicc(SimpleNamespace())
         e.init = AsyncMock()
@@ -585,7 +596,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         with patch("beesim_transport.BleakScanner.find_device_by_address", new=scan), \
                 patch("beesim_transport.BleakClient", return_value=client):
             await connect("test")
-        scan.assert_awaited_once()   # 设备解析只做一次，不在重试内重复扫描
+        scan.assert_awaited_once()   # 无重试的成功路径只解析一次
 
     async def test_scan_error_not_retried(self):
         # 扫描/解析错误（如无适配器抛 BleakError）不再重试，快速失败。
@@ -624,3 +635,32 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         clients[1].disconnected_callback(clients[1])      # 当前 client 的回调
         self.assertTrue(euicc.t.closed)                   # 正常关闭
         self.assertFalse(euicc.inited)                    # 当前回调同时清 inited
+
+    async def test_connect_stops_after_max_retries(self):
+        chars = [SimpleNamespace(uuid="write-nr", properties=["write-without-response"]),
+                 SimpleNamespace(uuid="notify", properties=["notify"])]
+        client = SimpleNamespace(connect=AsyncMock(side_effect=TimeoutError()),
+                                 disconnect=AsyncMock(),
+                                 services=[SimpleNamespace(uuid=SERVICE_UUID, characteristics=chars)])
+        device = SimpleNamespace(address="test", name="BeeSIM-test")
+        scan = AsyncMock(return_value=device)
+        with patch("beesim_transport.BleakScanner.find_device_by_address", new=scan), \
+                patch("beesim_transport.BleakClient", return_value=client), \
+                patch("beesim_transport.asyncio.sleep", new=AsyncMock()):
+            with self.assertRaises(TimeoutError):
+                await connect("test")
+        self.assertEqual(client.connect.await_count, 3)    # 最多 3 次连接尝试
+        self.assertEqual(scan.await_count, 3)             # 初始 + 两次重试前短刷新
+        self.assertEqual([call.kwargs.get("timeout") for call in scan.await_args_list], [10.0, 5.0, 5.0])
+
+    async def test_address_resolve_timeout_is_clipped(self):
+        chars = [SimpleNamespace(uuid="write-nr", properties=["write-without-response"]),
+                 SimpleNamespace(uuid="notify", properties=["notify"])]
+        client = SimpleNamespace(connect=AsyncMock(), disconnect=AsyncMock(), start_notify=AsyncMock(),
+                                 services=[SimpleNamespace(uuid=SERVICE_UUID, characteristics=chars)])
+        device = SimpleNamespace(address="test", name="BeeSIM-test")
+        scan = AsyncMock(return_value=device)
+        with patch("beesim_transport.BleakScanner.find_device_by_address", new=scan), \
+                patch("beesim_transport.BleakClient", return_value=client):
+            await connect("test", timeout=2.0)
+        self.assertEqual(scan.await_args.kwargs["timeout"], 2.0)   # min(timeout,10)

@@ -28,6 +28,16 @@ class CLITests(unittest.TestCase):
                 expected = None if len(arguments) == 1 else arguments[-1]
                 self.assertEqual(run.call_args.args[1], expected)
 
+    def test_tui_route_defaults_direct_and_web_is_proxy(self):
+        from beesim_web import DirectRSP, WebAPI
+        cases = [(["beesim.py"], DirectRSP),
+                 (["beesim.py", "--rsp-transport", "web"], WebAPI),
+                 (["beesim.py", "--rsp-transport", "direct"], DirectRSP)]
+        for argv, expected in cases:
+            with self.subTest(argv=argv), patch.object(sys, "argv", argv), patch("beesim.run_tui") as run:
+                main()
+            self.assertIsInstance(run.call_args.kwargs["gateway"], expected)
+
 
 class CLIResetTests(unittest.IsolatedAsyncioTestCase):
     async def test_reset_failure_warns_on_stderr(self):
@@ -61,3 +71,28 @@ class CLIResetTests(unittest.IsolatedAsyncioTestCase):
                 await _run(args)
         self.assertNotEqual(ctx.exception.code, 0)
         self.assertIn("reset not acknowledged", err.getvalue())
+
+    async def test_download_explicit_empty_confirmation_clears_embedded(self):
+        from beesim import _run
+        args = SimpleNamespace(command="download", code="1$rsp.example.com$MATCH$$ABC",
+                               confirm_code="", rsp_transport="direct", address=None, debug=False,
+                               timeout=30.0, channel=1, store_max_lc=120, delay_over_counter=6)
+        client = SimpleNamespace(disconnect=AsyncMock())
+        with patch("beesim.connect", new=AsyncMock(return_value=(client, SimpleNamespace(), SimpleNamespace()))), \
+                patch("beesim.download_profile", new=AsyncMock()) as dl:
+            await _run(args)
+        self.assertIsNone(dl.call_args.args[4])
+
+    async def test_firmware_invalid_progress_raises(self):
+        from beesim import _run
+        args = SimpleNamespace(command="firmware-write", file="dummy", resume=False,
+                               address=None, debug=False, timeout=30.0, channel=1,
+                               store_max_lc=120, delay_over_counter=6, rsp_transport="direct")
+        client = SimpleNamespace(disconnect=AsyncMock())
+        euicc = SimpleNamespace(check_upgrading=AsyncMock(
+            return_value={"crc": "ABCD", "totalRows": 2, "currentRow": 3}))
+        with patch("beesim.connect", new=AsyncMock(return_value=(client, SimpleNamespace(), euicc))), \
+                patch("beesim.Path.read_text", return_value="dummy"), \
+                patch("beesim.parse_firmware_text", return_value={"rows": ["F001", "F200"], "crc": "ABCD"}):
+            with self.assertRaisesRegex(ValueError, "Invalid firmware progress"):
+                await _run(args)

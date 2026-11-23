@@ -290,6 +290,11 @@ class Euicc:
 # download sequence must never be replayed automatically.
 _REPLAYABLE_ES10_TAGS = {"BF20", "BF22", "BF2D", "BF2E", "BF28", "BF2B", "BF3E"}
 
+# 官方 v2.3.6 仅在这些高层 ES10 方法入口清零节流计数；Challenge/Info1/
+# AuthenticateServer/PrepareDownload/RemoveNotification 保持累计（见
+# src-beautified/utils-v_n99D2T.js:2234-2398）。不要对所有 _read 一刀切清零。
+_COUNTER_RESET_ES10_TAGS = {"BF22", "BF2D", "BF3E", "BF29", "BF31", "BF32", "BF33", "BF28", "BF2B"}
+
 
 class BeeSim:
     def __init__(self, euicc: Euicc):
@@ -307,8 +312,10 @@ class BeeSim:
 
     async def _read(self, command: bytes):
         async with self.e.transaction():
-            self.e._counter = 0
-            attempts = 3 if command[:2].hex().upper() in _REPLAYABLE_ES10_TAGS else 1
+            tag = command[:2].hex().upper()
+            if tag in _COUNTER_RESET_ES10_TAGS:
+                self.e._counter = 0
+            attempts = 3 if tag in _REPLAYABLE_ES10_TAGS else 1
             raw = b""
             for attempt in range(attempts):
                 raw = await self.e.store_and_read(command)

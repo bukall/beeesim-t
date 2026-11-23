@@ -246,11 +246,11 @@ def main():
     # No sub-command (or an explicit `tui`) -> launch the terminal UI.
     if args.command in (None, "tui"):
         # TUI downloads always make the selected route visible in a confirmation.
-        from beesim_web import DirectRSP
+        from beesim_web import DirectRSP, WebAPI
         run_tui(args.address, args.lang, debug=args.debug,
                 settings=dict(timeout=args.timeout, store_max_lc=args.store_max_lc,
                               channel=args.channel, delay_over_counter=args.delay_over_counter),
-                gateway=DirectRSP() if args.rsp_transport == "direct" else None)
+                gateway=DirectRSP() if args.rsp_transport == "direct" else WebAPI())
     else:
         try:
             asyncio.run(_run(args))

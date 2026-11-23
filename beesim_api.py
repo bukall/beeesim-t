@@ -418,7 +418,7 @@ class BeeSIMClient:
         activation_code 形如 ``LPA:1$<smdp>$<matchingId>[$$<confirmationCode>]``；
         ``$$`` 段嵌入的确认码会被直接使用，confirm_code 参数可覆盖它。确认码是否
         必填由 PrepareDownload（服务端签名 tag 01 === FF）判定，必填而缺失时抛
-        ValueError。默认走官方代理，可传 gateway 覆盖。
+        ValueError。默认使用 DirectRSP（本机网络直连）；传 ``gateway=WebAPI()`` 可改用官方代理。
         安装期间 TX 功率临时提升到 4，成功或失败都会尝试恢复到 1。
         新配置默认处于停用状态，需要时再调用 enable()。
         """

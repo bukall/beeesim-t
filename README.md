@@ -155,7 +155,7 @@ ISO 7816-4 与 GSMA SGP.22。
 | `store_max_lc` | 120 | 单条 STORE DATA（`81 E2`）的数据字节数；ISO 7816-4 短 APDU 的 Lc 只有 1 字节，故范围 1–255。越小分块越多、单条越短。 |
 | `timeout` | 30 秒 | 等待卡片经 BLE notify 返回 APDU 响应的最长时间。超时后传输层会使会话失效，必须重新连接再发命令。 |
 | `channel` | 1 | ISO 7816-4 补充逻辑通道（MANAGE CHANNEL，`INS=70`）；ES10 的 CLA = `0x80 \| 通道号`。Web 2.3.6 固定通道 1，仅当卡片拒绝时才试 2/3。 |
-| `delay_over_counter` | 6 | 连续发送多少条 APDU 后暂停 1.2 秒，给卡片留处理时间。`GET RESPONSE`（`0xC0`）与 `0xFE` 不会*触发*停顿（但仍计入计数器，与官方一致）；下载配置包/刷固件时提高到 20。0 关闭节流。与官方一致，每个 ES10 高层命令开始时清零计数，因此节流主要约束单次命令内部的 APDU 链，不跨高层命令累计。 |
+| `delay_over_counter` | 6 | 连续发送多少条 APDU 后暂停 1.2 秒，给卡片留处理时间。`GET RESPONSE`（`0xC0`）与 `0xFE` 不会*触发*停顿（但仍计入计数器，与官方一致）；下载配置包/刷固件时提高到 20。0 关闭节流。清零范围与官方一致：Info2/Profiles/EID/改名/启停删/通知列表与检索在入口清零；Challenge/Info1/AuthenticateServer/PrepareDownload/RemoveNotification 保持累计。 |
 
 ## Capacity
 
@@ -308,7 +308,7 @@ APDU，`skip_pin` 开关写入后从未被读取。详见上面的安全警告�
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v      # 116 项，不需要蓝牙/硬件
+python -m unittest discover -s tests -v      # 124 项，不需要蓝牙/硬件
 ```
 
 覆盖 TLV 编解码、APDU 会话、传输分帧、ES10 解析、下载流程、对外 API、HTTP 合约

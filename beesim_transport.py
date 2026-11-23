@@ -141,7 +141,7 @@ async def connect(address: Optional[str] = None, debug: bool = False, *,
     if BleakClient is None:
         raise RuntimeError("bleak is not installed. Run: pip install bleak")
 
-    # --- 解析设备对象（只做一次；避免重试时重复扫描，设备未广播时也快速失败）---
+    # --- 解析设备对象（初始一次；重试前再短刷新一次，避免重复长扫描）---
     device = None
     if address is None:
         if log:
@@ -213,8 +213,8 @@ async def connect(address: Optional[str] = None, debug: bool = False, *,
             raise
 
     # 卡片断电重启（换卡槽）后 Windows/WinRT 连接可能瞬时失败（超时/初始化掉线/设备
-    # 暂不可达）；仅对"连接 + 会话建立"重试几次，与官方网页的重连效果一致。设备解析
-    # 已在上面一次性完成，扫描失败（无适配器/未广播）不在此重试。
+    # 暂不可达）；仅对"连接 + 会话建立"重试几次，与官方网页的重连效果一致。初始
+    # 扫描失败（无适配器/未广播）不重试；每次重试前只做一次短扫描刷新设备对象。
     for attempt in range(3):
         try:
             return await _open()

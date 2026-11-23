@@ -320,6 +320,46 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         from beesim_web import DirectRSP
         self.assertIsInstance(build_app()().gateway, DirectRSP)
 
+    async def test_direct_download_cancel_aborts(self):
+        app = build_app()(language="zh")   # 默认直连
+        app.client = SimpleNamespace(disconnect=AsyncMock())
+        app.sim = SimpleNamespace(get_profiles=AsyncMock(return_value=[]))
+        app.euicc = SimpleNamespace(t=SimpleNamespace(closed=False))
+        async with app.run_test(size=(110, 40)) as pilot:
+            with patch("beesim_tui.download_profile", new=AsyncMock()) as download:
+                app.action_download()
+                await pilot.pause()
+                app.screen.query_one(Input).value = "LPA:1$rsp.example.com$test"
+                await pilot.click("#ok")
+                await pilot.pause()
+                await pilot.click("#ok")   # 确认码留空
+                await pilot.pause()
+                self.assertIn("直接连接", str(app.screen.query_one("#dialog-q", Label).render()))
+                await pilot.click("#cancel")
+                await pilot.pause()
+                download.assert_not_awaited()
+
+    async def test_firmware_invalid_progress_stops_before_write(self):
+        app = build_app()(language="zh")
+        app.client = SimpleNamespace(disconnect=AsyncMock())
+        app.sim = SimpleNamespace(download_firmware=AsyncMock())
+        app.euicc = SimpleNamespace(check_upgrading=AsyncMock(
+            return_value={"crc": "ABCD", "totalRows": 2, "currentRow": 3}),
+            t=SimpleNamespace(closed=False))
+        logs = []
+        async with app.run_test(size=(110, 40)) as pilot:
+            app.log_line = logs.append
+            with patch("beesim_tui.Path.read_text", return_value="dummy"), \
+                    patch("beesim_tui.parse_firmware_text", return_value={"rows": ["F001", "F200"], "crc": "ABCD"}):
+                app.action_firmware()
+                await pilot.pause()
+                app.screen.query_one(Input).value = "dummy"
+                await pilot.click("#ok")
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+            app.sim.download_firmware.assert_not_awaited()
+            self.assertTrue(any("进度无效" in message for message in logs), logs)
+
     async def test_info_screen_shows_json_and_chinese_explanation(self):
         app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())

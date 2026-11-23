@@ -141,8 +141,8 @@ class WebAPI:
         payload["vercode" if vercode else "password"] = vercode if vercode else hashlib.md5(password.encode()).hexdigest()
         result = await self.request("login", "login", payload)
         token = result.get("token")
-        if not token:
-            raise RuntimeError("BeeSIM login: token missing")
+        if not isinstance(token, str) or not token:
+            raise RuntimeError("BeeSIM login: token missing or invalid")
         self.token = token
         return result.get("data")
 
