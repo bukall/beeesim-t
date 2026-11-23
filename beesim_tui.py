@@ -74,6 +74,33 @@ def build_app():
         def on_button_pressed(self, event):
             self.dismiss(event.button.id == "confirm")
 
+    class RouteScreen(ModalScreen[str | None]):
+        """下载路由三选一：直连（本机网络）/ BeeSIM 中转（官方代理）/ 取消。"""
+        BINDINGS = [Binding("escape", "dismiss_route", show=False)]
+
+        def __init__(self, language):
+            super().__init__()
+            self.language = language
+
+        def compose(self):
+            tr = lambda key: translate(key, self.language)
+            with Vertical(id="dialog"):
+                yield Label(tr("download_route_question"), id="dialog-q", markup=False)
+                yield Static(tr("download_route_hint"), classes="field-hint", markup=False)
+                with Vertical(id="route-buttons"):
+                    yield Button(tr("route_direct"), id="route-direct", variant="primary")
+                    yield Button(tr("route_proxy"), id="route-proxy")
+                    yield Button(tr("cancel"), id="route-cancel")
+
+        def on_mount(self):
+            self.query_one("#route-direct", Button).focus()   # 默认焦点在直连
+
+        def on_button_pressed(self, event):
+            self.dismiss({"route-direct": "direct", "route-proxy": "proxy"}.get(event.button.id))
+
+        def action_dismiss_route(self):
+            self.dismiss(None)
+
     class FormScreen(ModalScreen[dict | None]):
         def __init__(self, title, fields, language):
             super().__init__()
@@ -175,6 +202,8 @@ def build_app():
         #dialog Input, #dialog Select { margin-bottom: 1; }
         #dialog-buttons { height: auto; align: right middle; margin-top: 1; }
         #dialog-buttons Button { width: auto; margin-left: 1; }
+        #route-buttons { height: auto; margin-top: 1; }
+        #route-buttons Button { width: 100%; margin-bottom: 1; }
         #info-body { height: 28; max-height: 70%; border: round $primary; padding: 0 1; }
         #dialog .info-heading { text-style: bold; margin-top: 1; }
         #dialog .field-hint { color: $text-muted; margin-bottom: 1; }
@@ -448,8 +477,7 @@ def build_app():
                     self.log_line(self.tr("failed", action=self.tr("download"), error=str(exc)))
                     return
                 def confirmation(confirmation_code):
-                    from beesim_web import DirectRSP
-                    direct = isinstance(self.gateway, DirectRSP)
+                    from beesim_web import DirectRSP, WebAPI
 
                     async def perform(gateway):
                         # 确认码必填与否由 PrepareDownload 判定；表单值已是最终值
@@ -460,18 +488,16 @@ def build_app():
                         self.log_line(self.tr("download_ok"))
                         await self._refresh_soft()
 
-                    def choose(yes):
-                        if direct:
-                            if not yes:             # 直连确认点取消 -> 不下载
-                                return
-                            gateway = self.gateway
-                        else:
-                            # 代理确认：确认走代理；取消/拒绝回退直连（本机网络）。
-                            gateway = self.gateway if yes else DirectRSP()
+                    def choose(choice):
+                        if choice == "direct":          # 直连：本机网络
+                            gateway = self.gateway if isinstance(self.gateway, DirectRSP) else DirectRSP()
+                        elif choice == "proxy":         # BeeSIM 中转：官方代理
+                            gateway = self.gateway if isinstance(self.gateway, WebAPI) else WebAPI()
+                        else:                           # 取消 / 关闭对话框
+                            return
                         self._start("download", lambda: perform(gateway))
 
-                    self.push_screen(ConfirmScreen(self.tr("direct_question" if direct else "proxy_question"), self.language),
-                                     choose)
+                    self.push_screen(RouteScreen(self.language), choose)
                 self._form("confirmation_code", confirmation, value=embedded_cc, password=True)
             self._form("activation", activation)
 

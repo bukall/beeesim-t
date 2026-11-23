@@ -142,6 +142,7 @@ class WebAPI:
         result = await self.request("login", "login", payload)
         token = result.get("token")
         if not isinstance(token, str) or not token:
+            self.token = None   # 登录响应无效时清除旧账号 token，避免失败后仍以旧身份操作
             raise RuntimeError("BeeSIM login: token missing or invalid")
         self.token = token
         return result.get("data")

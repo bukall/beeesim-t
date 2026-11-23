@@ -411,6 +411,17 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "selector"):
             await sim.get_profiles("   ")
 
+    async def test_send_notification_defaults_to_direct_gateway(self):
+        metadata = tlv([0xBF, 0x2F], tlv(0x80, b"\x01"), tlv(0x0C, b"rsp.example.com"))
+        raw = tlv([0xBF, 0x2B], tlv(0xA0, tlv(0x30, metadata)))
+        sim = BeeSim(euicc([]))
+        sim.retrieve_notification = AsyncMock(return_value=raw)
+        sim.remove_notification = AsyncMock()
+        marker = SimpleNamespace(execute=AsyncMock(return_value={}))
+        with patch("beesim_web.DirectRSP", return_value=marker):
+            await sim.send_notification("01")   # 不传 gateway -> 默认 DirectRSP（本机网络）
+        marker.execute.assert_awaited_once()
+
     async def test_read_counter_reset_matches_official(self):
         # 官方仅部分 ES10 方法入口清零；AuthenticateServer 保持累计，SetNickname 清零。
         e = Euicc(SimpleNamespace(), delay_over_counter=0)

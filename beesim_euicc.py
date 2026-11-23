@@ -496,6 +496,9 @@ class BeeSim:
 
         参数
         ----
+        gateway
+            可选 ES9+ 网关；``None`` 时默认 ``DirectRSP``（本机网络直连 SM-DP+），
+            可传 ``beesim_web.WebAPI()`` 使用官方代理。
         delete_after
             ``True`` 时发送成功后按**通知体解析出的 index** 删除该通知（与官方一致；
             index 缺失时才回退到调用方 ``seq``）；``False``（默认）时全部保留，
@@ -506,7 +509,7 @@ class BeeSim:
             # 必须在任何外部请求之前拒绝：retrieve_notification(None) 会取全部，
             # 若放任 None 会静默发送第一条，且 delete_after 时发送成功后才崩溃。
             raise ValueError("Notification sequence required")
-        from beesim_web import WebAPI
+        from beesim_web import DirectRSP
         async with self.e.transaction():
             raw = await self.retrieve_notification(seq)
             items = find_tag(parse_tlv(raw), "BF2B", "A0")
@@ -523,7 +526,7 @@ class BeeSim:
             if smdp == "rsp.simhub.cn":
                 smdp = "rsp-eu.redteamobile.com"
             pending = h2b(serialize_tlv(node))
-            await (gateway or WebAPI()).execute("handleNotification", smdp, self.protocol,
+            await (gateway or DirectRSP()).execute("handleNotification", smdp, self.protocol,
                                                {"pendingNotification": base64.b64encode(pending).decode()})
             # 官方 Web 发送成功后总是删除；本项目默认保留，仅显式要求时删除。
             # 删除按通知体解析出的 index（官方 sendAndDelNotification 会把目标序号

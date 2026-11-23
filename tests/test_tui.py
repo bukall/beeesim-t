@@ -269,9 +269,9 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(app.client)
             self.assertTrue(app.query_one("#btn-refresh", Button).disabled)
 
-    async def test_download_requests_confirmation_code_and_route_confirmation(self):
+    async def test_download_requests_confirmation_code_and_three_route_options(self):
         from beesim_web import WebAPI
-        app = build_app()(language="zh", gateway=WebAPI())   # 显式代理路径
+        app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(get_profiles=AsyncMock(return_value=[]))
         app.euicc = SimpleNamespace(t=SimpleNamespace(closed=False))
@@ -286,15 +286,20 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                 app.screen.query_one(Input).value = "1234"
                 await pilot.click("#ok")
                 await pilot.pause()
-                self.assertIn("官方代理", str(app.screen.query_one("#dialog-q", Label).render()))
+                # 三选一路由对话框：直连 / BeeSIM 中转 / 取消
+                self.assertIsNotNone(app.screen.query_one("#route-direct", Button))
+                self.assertIsNotNone(app.screen.query_one("#route-proxy", Button))
+                self.assertIsNotNone(app.screen.query_one("#route-cancel", Button))
                 download.assert_not_awaited()
-                await pilot.click("#confirm")
+                await pilot.click("#route-proxy")
                 await pilot.pause()
+                await app.workers.wait_for_complete()
                 self.assertEqual(download.call_args.args[4], "1234")
+                self.assertIsInstance(download.call_args.kwargs["gateway"], WebAPI)
 
-    async def test_proxy_download_cancel_uses_direct_and_can_clear_embedded_code(self):
-        from beesim_web import DirectRSP, WebAPI
-        app = build_app()(language="zh", gateway=WebAPI())
+    async def test_download_route_direct_clears_embedded_code(self):
+        from beesim_web import DirectRSP
+        app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(get_profiles=AsyncMock(return_value=[]))
         app.euicc = SimpleNamespace(t=SimpleNamespace(closed=False))
@@ -308,8 +313,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                 app.screen.query_one(Input).value = ""   # 用户清空内嵌码
                 await pilot.click("#ok")
                 await pilot.pause()
-                self.assertIn("官方代理", str(app.screen.query_one("#dialog-q", Label).render()))
-                await pilot.click("#cancel")           # 代理确认取消 -> 本机网络直连
+                await pilot.click("#route-direct")
                 await pilot.pause()
                 await app.workers.wait_for_complete()
                 download.assert_awaited_once()
@@ -320,8 +324,8 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
         from beesim_web import DirectRSP
         self.assertIsInstance(build_app()().gateway, DirectRSP)
 
-    async def test_direct_download_cancel_aborts(self):
-        app = build_app()(language="zh")   # 默认直连
+    async def test_download_route_cancel_aborts(self):
+        app = build_app()(language="zh")
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(get_profiles=AsyncMock(return_value=[]))
         app.euicc = SimpleNamespace(t=SimpleNamespace(closed=False))
@@ -334,8 +338,7 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause()
                 await pilot.click("#ok")   # 确认码留空
                 await pilot.pause()
-                self.assertIn("直接连接", str(app.screen.query_one("#dialog-q", Label).render()))
-                await pilot.click("#cancel")
+                await pilot.click("#route-cancel")
                 await pilot.pause()
                 download.assert_not_awaited()
 

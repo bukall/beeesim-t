@@ -57,8 +57,10 @@ your own network; firmware/web APIs use BeeSIM services).
 ```bash
 python3 -m venv .venv          # Python 3.11+
 source .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install --only-binary=:all: -r requirements.txt   # bleak, textual, cryptography
+pip install --only-binary=:all: -r requirements.txt   # bleak, textual (1.0–8.x), cryptography
 ```
+
+当前支持 Textual 1.0–8.x（`requirements.txt` 为 `textual>=1.0,<9`）。
 
 需要一台有蓝牙适配器、且系统已授权 BLE 的机器（macOS：系统设置 → 隐私与安全性
 里给终端蓝牙权限）。
@@ -137,6 +139,9 @@ dict/list/str/bool。超时或断开后必须重新 `connect_card()`，旧对象
 
 兼容性说明（相对早期版本的破坏性变更）：
 
+- **默认 ES9+ 路由由官方代理改为直连（本机网络）**：这是脚本可观测的行为变更
+  （出网路径变化）。需要旧行为请显式 `--rsp-transport web` 或 `gateway=WebAPI()`；
+  TUI 下载会弹出「直连 / BeeSIM 中转 / 取消」三选项。
 - `beesim_protocol.parse_activation_code` 返回 `(smdp, matchingId, confirmationCode)`，
   第三位由旧版 `bool`（是否需确认码）改为 `str`（激活码 `$$` 段嵌入的实际确认码值，
   空串表示无）；采用**前缀匹配（非 fullmatch）**，容忍尾部 OID/flag 段；`scheme`/`:port`
@@ -308,7 +313,7 @@ APDU，`skip_pin` 开关写入后从未被读取。详见上面的安全警告�
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v      # 124 项，不需要蓝牙/硬件
+python -m unittest discover -s tests -v      # 127 项，不需要蓝牙/硬件
 ```
 
 覆盖 TLV 编解码、APDU 会话、传输分帧、ES10 解析、下载流程、对外 API、HTTP 合约

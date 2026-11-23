@@ -173,22 +173,26 @@ class BeeSIMClient:
         return str(self._sim.protocol)
 
     async def close(self) -> None:
-        """断开 BLE 连接。重复调用安全；断开后不可再复用本对象。"""
+        """断开 BLE 连接。重复调用安全；断开后不可再复用本对象。
+
+        断开失败会抛出异常且**不**标记为已关闭，调用方可重试清理（避免物理连接
+        残留却报告已关闭）。``async with`` 退出时的清理失败由 ``__aexit__`` 抑制，
+        以免掩盖代码块内的原始业务异常。
+        """
         if self._closed:
             return
+        await self._ble.disconnect()
         self._closed = True
-        try:
-            await self._ble.disconnect()
-        except Exception:
-            # 清理失败不应掩盖 async with 代码块里的原始业务异常。
-            pass
 
     async def __aenter__(self) -> "BeeSIMClient":
         self._ensure_open()
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
-        await self.close()
+        try:
+            await self.close()
+        except Exception:
+            pass   # 清理失败不掩盖业务异常；对象保持未关闭以便调用方重试清理
 
     # --- 只读查询 -----------------------------------------------------------
     async def eid(self) -> str:

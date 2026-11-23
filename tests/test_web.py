@@ -67,6 +67,13 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaisesRegex(RuntimeError, "token missing"):
                     await self.client.login("test@example.com", password="p")
 
+    async def test_login_failure_clears_previous_token(self):
+        self.client.token = "OLD-TOKEN"
+        self.responses.append({"status": 200, "data": {}, "token": None})
+        with self.assertRaisesRegex(RuntimeError, "token missing"):
+            await self.client.login("test@example.com", password="p")
+        self.assertIsNone(self.client.token)   # 失败登录不得保留旧账号 token
+
     async def test_server_error_and_unauthorized_do_not_echo_token(self):
         self.client.token = "private-test-token"
         self.responses.append({"status": 401, "msg": "private-test-token"})

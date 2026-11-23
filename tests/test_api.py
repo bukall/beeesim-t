@@ -66,11 +66,22 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "closed"):
             await card.eid()
 
-    async def test_close_swallows_disconnect_failure(self):
+    async def test_close_propagates_failure_and_allows_retry(self):
+        card = make_client()
+        card._ble.disconnect = AsyncMock(side_effect=[ConnectionError("drop"), None])
+        with self.assertRaises(ConnectionError):
+            await card.close()
+        self.assertFalse(card.closed)          # 断开失败不标记关闭，允许重试清理
+        await card.close()
+        self.assertTrue(card.closed)
+        self.assertEqual(card._ble.disconnect.await_count, 2)
+
+    async def test_aexit_suppresses_cleanup_error_without_masking(self):
         card = make_client()
         card._ble.disconnect = AsyncMock(side_effect=ConnectionError("drop"))
-        await card.close()                      # 清理异常不抛出，不掩盖 async with 原异常
-        self.assertTrue(card.closed)
+        with self.assertRaisesRegex(KeyError, "business"):   # 清理失败不掩盖业务异常
+            async with card:
+                raise KeyError("business")
 
     async def test_closed_reflects_transport_invalidation(self):
         card = make_client()
