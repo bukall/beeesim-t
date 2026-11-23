@@ -60,6 +60,11 @@ class WebTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(firmware.get_header("X-sign"))
         self.assertEqual(len(self.requests), 6)
 
+    async def test_login_requires_token(self):
+        self.responses.append({"status": 200, "data": {}, "token": None})
+        with self.assertRaisesRegex(RuntimeError, "token missing"):
+            await self.client.login("test@example.com", password="p")
+
     async def test_server_error_and_unauthorized_do_not_echo_token(self):
         self.client.token = "private-test-token"
         self.responses.append({"status": 401, "msg": "private-test-token"})

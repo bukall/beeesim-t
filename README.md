@@ -2,13 +2,15 @@
 
 用蓝牙管理 **BeeSIM eUICC 卡（eSIM）** 的 Python 工具 —— 命令行、中英双语终端界面、
 以及可编程调用的异步 API。日常配置管理完全走蓝牙；**下载新 eSIM、发送通知到 SM-DP+、
-查询固件版本与 `web` 子命令**需要联网（默认走 BeeSIM 官方代理）。
+查询固件版本与 `web` 子命令**需要联网（eSIM 下载/通知默认使用本机网络直连 SM-DP+；
+固件版本/`web` 子命令仍走 BeeSIM 官方服务）。
 
 A Python BLE controller for **BeeSIM eUICC cards** (eSIM) — CLI, bilingual
 terminal UI, and a programmable async API. Day-to-day profile management runs
 entirely over Bluetooth; downloading a new eSIM, sending notifications to the
 SM-DP+, querying firmware versions and the `web` subcommand also talk HTTPS
-(through the official BeeSIM proxy by default).
+(eSIM downloads/notifications connect directly to the SM-DP+ by default using
+your own network; firmware/web APIs use BeeSIM services).
 
 本项目基于 [cyyself/beeesim-api](https://github.com/cyyself/beeesim-api) 二次开发，
 保留其 BLE/eUICC 协议逆向成果与 Git 历史；实现对齐官方 **BeeSIM Web v2.3.6**，
@@ -83,9 +85,10 @@ python beesim.py txpower 4             # 0=最小 .. 4=最大
 python beesim.py --help                # 完整命令列表
 ```
 
-全局参数：`--debug`（把全部 APDU 打到 stderr）、`--address`（先用短暂扫描把地址解析成
-设备对象再连接，避免 Windows 裸地址 GATT 发现挂起；省略则按名称扫描）、`--timeout`、
-`--store-max-lc`、`--channel`、`--delay-over-counter`、`--rsp-transport web|direct`。
+全局参数：`--debug`（把全部 APDU 打到 stderr）、`--address`（先用 `min(timeout,10)` 秒
+把地址解析成设备对象再连接，避免 Windows 裸地址 GATT 发现挂起；省略则按名称扫描）、
+`--timeout`、`--store-max-lc`、`--channel`、`--delay-over-counter`、
+`--rsp-transport direct|web`（默认 **direct**，本机网络直连 SM-DP+；`web` 为官方代理）。
 
 ### Terminal UI
 
@@ -136,8 +139,9 @@ dict/list/str/bool。超时或断开后必须重新 `connect_card()`，旧对象
 
 - `beesim_protocol.parse_activation_code` 返回 `(smdp, matchingId, confirmationCode)`，
   第三位由旧版 `bool`（是否需确认码）改为 `str`（激活码 `$$` 段嵌入的实际确认码值，
-  空串表示无）；采用官方非锚定前缀匹配，容忍尾部 OID/flag 段。不要把它与 `True` 比较。
-- `BeeSIMClient.reset()` 现返回 `bool`（True=收到任意应答；False=无应答/超时/断连），尽力而为、不抛异常。
+  空串表示无）；采用**前缀匹配（非 fullmatch）**，容忍尾部 OID/flag 段；`scheme`/`:port`
+  仍显式拒绝。不要把它与 `True` 比较。
+- `BeeSIMClient.reset()` 现返回 `bool`（True=收到至少两字节的任意应答；False=无应答/超时/断连），尽力而为；会话已关闭时仍由 `_ensure_open` 统一抛 `RuntimeError`。
 - `info_explained` / `capacity_explained` 的语言判定与 `translate` 一致：仅精确 `"zh"`
   为中文，其它标签（含 `"zh-CN"`、`"en-US"`）一律英文。
 
@@ -151,7 +155,7 @@ ISO 7816-4 与 GSMA SGP.22。
 | `store_max_lc` | 120 | 单条 STORE DATA（`81 E2`）的数据字节数；ISO 7816-4 短 APDU 的 Lc 只有 1 字节，故范围 1–255。越小分块越多、单条越短。 |
 | `timeout` | 30 秒 | 等待卡片经 BLE notify 返回 APDU 响应的最长时间。超时后传输层会使会话失效，必须重新连接再发命令。 |
 | `channel` | 1 | ISO 7816-4 补充逻辑通道（MANAGE CHANNEL，`INS=70`）；ES10 的 CLA = `0x80 \| 通道号`。Web 2.3.6 固定通道 1，仅当卡片拒绝时才试 2/3。 |
-| `delay_over_counter` | 6 | 连续发送多少条 APDU 后暂停 1.2 秒，给卡片留处理时间。`GET RESPONSE`（`0xC0`）与 `0xFE` 不会*触发*停顿（但仍计入计数器，与官方一致）；下载配置包/刷固件时提高到 20。0 关闭节流。 |
+| `delay_over_counter` | 6 | 连续发送多少条 APDU 后暂停 1.2 秒，给卡片留处理时间。`GET RESPONSE`（`0xC0`）与 `0xFE` 不会*触发*停顿（但仍计入计数器，与官方一致）；下载配置包/刷固件时提高到 20。0 关闭节流。与官方一致，每个 ES10 高层命令开始时清零计数，因此节流主要约束单次命令内部的 APDU 链，不跨高层命令累计。 |
 
 ## Capacity
 
@@ -172,7 +176,8 @@ ISO 7816-4 与 GSMA SGP.22。
 ## Notifications
 
 卡片会排队通知（INSTALL / ENABLE / DISABLE / DELETE），需送达其 SM-DP+。本工具通过
-`handleNotification` 发送（默认走官方代理）。**发送成功后默认保留卡上的通知**：
+`handleNotification` 发送（默认使用本机网络直连 SM-DP+；可选官方代理）。
+**发送成功后默认保留卡上的通知**：
 官方 Web 会立即删除，但删除不可逆，本工具把它交给调用方显式决定。
 
 需要删除时传参（不分通知类型）：
@@ -303,7 +308,7 @@ APDU，`skip_pin` 开关写入后从未被读取。详见上面的安全警告�
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v      # 105 项，不需要蓝牙/硬件
+python -m unittest discover -s tests -v      # 116 项，不需要蓝牙/硬件
 ```
 
 覆盖 TLV 编解码、APDU 会话、传输分帧、ES10 解析、下载流程、对外 API、HTTP 合约

@@ -140,7 +140,10 @@ class WebAPI:
         payload = {"by": "email-vercode" if vercode else "email-passwd", "account": account}
         payload["vercode" if vercode else "password"] = vercode if vercode else hashlib.md5(password.encode()).hexdigest()
         result = await self.request("login", "login", payload)
-        self.token = result.get("token")
+        token = result.get("token")
+        if not token:
+            raise RuntimeError("BeeSIM login: token missing")
+        self.token = token
         return result.get("data")
 
     async def modify_password(self, account, vercode, password):

@@ -43,3 +43,21 @@ class CLIResetTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(ctx.exception.code, 0)
         self.assertIn("reset failed", err.getvalue())   # 显式复位失败要有 stderr 反馈
         euicc.reset.assert_awaited_once()
+
+    async def test_firmware_reset_failure_exits_nonzero(self):
+        from beesim import _run
+        args = SimpleNamespace(command="firmware-write", file="dummy", resume=False,
+                               address=None, debug=False, timeout=30.0, channel=1,
+                               store_max_lc=120, delay_over_counter=6, rsp_transport="direct")
+        client = SimpleNamespace(disconnect=AsyncMock())
+        euicc = SimpleNamespace(check_upgrading=AsyncMock(
+            return_value={"crc": "ABCD", "totalRows": 1, "currentRow": 0}))
+        sim = SimpleNamespace(download_firmware=AsyncMock(return_value=False))
+        with patch("beesim.connect", new=AsyncMock(return_value=(client, sim, euicc))), \
+                patch("beesim.Path.read_text", return_value="dummy"), \
+                patch("beesim.parse_firmware_text", return_value={"rows": ["F001"], "crc": "ABCD"}), \
+                patch("sys.stderr", new=io.StringIO()) as err:
+            with self.assertRaises(SystemExit) as ctx:
+                await _run(args)
+        self.assertNotEqual(ctx.exception.code, 0)
+        self.assertIn("reset not acknowledged", err.getvalue())

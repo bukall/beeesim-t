@@ -66,6 +66,12 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "closed"):
             await card.eid()
 
+    async def test_close_swallows_disconnect_failure(self):
+        card = make_client()
+        card._ble.disconnect = AsyncMock(side_effect=ConnectionError("drop"))
+        await card.close()                      # 清理异常不抛出，不掩盖 async with 原异常
+        self.assertTrue(card.closed)
+
     async def test_closed_reflects_transport_invalidation(self):
         card = make_client()
         self.assertFalse(card.closed)
@@ -79,20 +85,44 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
         card._euicc.reset = AsyncMock(return_value=False)
         self.assertFalse(await card.reset())
 
+    async def test_firmware_write_rejects_invalid_progress(self):
+        card = make_client()
+        card._euicc.check_upgrading = AsyncMock(return_value={"crc": "ABCD", "totalRows": 2, "currentRow": 3})
+        with patch("beesim_api.Path.read_text", return_value="dummy"), \
+                patch("beesim_api.parse_firmware_text", return_value={"rows": ["F001", "F200"], "crc": "ABCD"}):
+            with self.assertRaisesRegex(ValueError, "Invalid firmware progress"):
+                await card.firmware_write("dummy")
+
+    async def test_firmware_write_return_includes_reset(self):
+        card = make_client()
+        card._sim.download_firmware = AsyncMock(return_value=False)
+        with patch("beesim_api.Path.read_text", return_value="dummy"), \
+                patch("beesim_api.parse_firmware_text", return_value={"rows": ["F001", "F200"], "crc": "ABCD"}):
+            card._euicc.check_upgrading = AsyncMock(return_value={"crc": "ABCD", "totalRows": 2, "currentRow": 0})
+            result = await card.firmware_write("dummy")
+            self.assertEqual(result["status"], "written")
+            self.assertFalse(result["reset"])
+            card._euicc.check_upgrading = AsyncMock(return_value={"crc": "ABCD", "totalRows": 2, "currentRow": 2})
+            result = await card.firmware_write("dummy", resume=True)
+            self.assertEqual(result["status"], "already-complete")
+            self.assertIsNone(result["reset"])
+
     async def test_connect_card_shares_gateway_and_validates_settings(self):
-        from beesim_web import WebAPI
+        from beesim_web import DirectRSP, WebAPI
         fake_connect = AsyncMock(return_value=(
             SimpleNamespace(address="AA", disconnect=AsyncMock()),
             SimpleNamespace(), SimpleNamespace()))
         with patch("beesim_api.connect", new=fake_connect):
             card = await connect_card()
-            self.assertIsInstance(card._gateway, WebAPI)   # None -> 共享一个 WebAPI 实例
+            self.assertIsInstance(card._gateway, DirectRSP)   # None -> 默认本机网络直连
             marker = object()
             self.assertIs((await connect_card(gateway=marker))._gateway, marker)
+            proxy = WebAPI()
+            self.assertIs((await connect_card(gateway=proxy))._gateway, proxy)
             for bad in ({"timeout": 0}, {"channel": 4}, {"store_max_lc": 300}, {"delay_over_counter": -1}):
                 with self.assertRaises(ValueError):
                     await connect_card(**bad)
-            self.assertEqual(fake_connect.await_count, 2)   # 非法参数在连接前失败
+            self.assertEqual(fake_connect.await_count, 3)   # 默认直连 + 自定义 + 显式代理；非法参数在连接前失败
 
     async def test_read_methods_delegate_and_return_plain_data(self):
         card = make_client()
@@ -144,6 +174,8 @@ class PublicApiTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(dl.call_args.args[4], "ABC123")      # 使用嵌入确认码
             await card.download("1$rsp.example.com$MATCH$$ABC123", confirm_code="9999")
             self.assertEqual(dl.call_args.args[4], "9999")        # 显式覆盖嵌入
+            await card.download("1$rsp.example.com$MATCH$$ABC123", confirm_code="")
+            self.assertIsNone(dl.call_args.args[4])               # 显式空串可清空内嵌确认码
 
     async def test_delete_and_notification_delegation(self):
         card = make_client()

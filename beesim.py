@@ -34,7 +34,7 @@ from pathlib import Path
 from beesim_download import download_profile
 from beesim_protocol import (
     NAME_PREFIX, capacity_data, describe_capacity, describe_euicc_info,
-    parse_activation_code, parse_firmware_text,
+    parse_activation_code, parse_firmware_text, validate_firmware_progress,
 )
 from beesim_tlv import b2h, h2b
 from beesim_transport import BleakScanner, connect
@@ -140,6 +140,7 @@ async def _run(args):
         elif args.command == "firmware-write":
             firmware = parse_firmware_text(Path(args.file).expanduser().read_text(encoding="utf-8"))
             progress = await euicc.check_upgrading()
+            validate_firmware_progress(progress)
             rows = firmware["rows"]
             start = 1
             if args.resume:
@@ -152,6 +153,7 @@ async def _run(args):
                 reset_ok = await sim.download_firmware(rows[start-1:], len(rows), start)
                 if not reset_ok:
                     print("firmware written; reset not acknowledged (reconnect to verify)", file=sys.stderr)
+                    raise SystemExit(1)   # 复位是固件生效关键步骤，脚本调用方应得到非零退出码
         elif args.command == "apdu":
             try:
                 print(b2h(await euicc.send_command(h2b(args.hex), reinit_on_6881=False)))
@@ -162,7 +164,8 @@ async def _run(args):
             # 确认码是否必填由 PrepareDownload（服务端 tag 01 === FF）判定；
             # 优先用显式 --confirm-code，其次用激活码 $$ 段嵌入的确认码。
             await download_profile(sim, euicc, smdp, matching_id,
-                                   args.confirm_code or embedded_cc or None, gateway=gateway)
+                                   (args.confirm_code or None) if args.confirm_code is not None else (embedded_cc or None),
+                                   gateway=gateway)
     finally:
         try:
             await client.disconnect()
@@ -195,7 +198,7 @@ def main():
     p.add_argument("--store-max-lc", type=int, default=120, help="STORE DATA bytes per block (default: 120)")
     p.add_argument("--channel", type=int, choices=(1, 2, 3), default=1)
     p.add_argument("--delay-over-counter", type=int, default=6, help="throttle threshold; 0 disables")
-    p.add_argument("--rsp-transport", choices=("web", "direct"), default="web", help="official Web proxy (default) or direct SM-DP+")
+    p.add_argument("--rsp-transport", choices=("web", "direct"), default="direct", help="direct SM-DP+ (default, own network) or official Web proxy")
     sub = p.add_subparsers(dest="command")
     tui = sub.add_parser("tui", help="launch the terminal UI (default when no command given)")
     tui.add_argument("--lang", choices=("zh", "en"), default=argparse.SUPPRESS)

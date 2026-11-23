@@ -60,11 +60,11 @@ from typing import Any, Callable, Optional
 from beesim_download import download_profile
 from beesim_protocol import (
     capacity_data, describe_capacity, describe_euicc_info,
-    parse_activation_code, parse_firmware_text,
+    parse_activation_code, parse_firmware_text, validate_firmware_progress,
 )
 from beesim_transport import connect, read_rssi
 from beesim_tlv import b2h, h2b
-from beesim_web import WebAPI
+from beesim_web import DirectRSP, WebAPI
 
 __all__ = ["BeeSIMClient", "connect_card"]
 
@@ -87,7 +87,9 @@ async def connect_card(
     参数
     ----
     address
-        BLE MAC/UUID。None 表示按名称前缀 ``BeeSIM`` 扫描 15 秒。
+        BLE MAC/UUID。None 表示按名称前缀 ``BeeSIM`` 扫描 15 秒；提供地址时先用
+        ``min(timeout, 10)`` 秒解析成扫描到的 BLEDevice 对象再连接（避免 Windows
+        裸地址 GATT 发现挂起），未找到则快速失败。
     debug
         True 时把全部 APDU 往来打印到 stderr（排查协议问题用）。
     timeout
@@ -100,7 +102,8 @@ async def connect_card(
         连续多少条 APDU 后暂停 1.2 秒，默认 6，范围 0..1000；0 关闭节流。
     gateway
         可选 ES9+ 网关对象（需实现 async execute(action, smdp, protocol, fields)）。
-        None 时使用官方 Web 代理 WebAPI；也可传 beesim_web.DirectRSP()。
+        None 时默认使用 DirectRSP（本机网络直连 SM-DP+）；传 beesim_web.WebAPI()
+        可改用官方代理（这是相对官方网页默认行为的**有意差异**）。
 
     返回
     ----
@@ -122,7 +125,7 @@ async def connect_card(
         delay_over_counter=delay_over_counter,
     )
     # 共享一个网关实例（而非每次调用各自新建），以便复用 token / base_url。
-    return BeeSIMClient(ble_client, sim, euicc, gateway=gateway if gateway is not None else WebAPI())
+    return BeeSIMClient(ble_client, sim, euicc, gateway=gateway if gateway is not None else DirectRSP())
 
 
 class BeeSIMClient:
@@ -174,7 +177,11 @@ class BeeSIMClient:
         if self._closed:
             return
         self._closed = True
-        await self._ble.disconnect()
+        try:
+            await self._ble.disconnect()
+        except Exception:
+            # 清理失败不应掩盖 async with 代码块里的原始业务异常。
+            pass
 
     async def __aenter__(self) -> "BeeSIMClient":
         self._ensure_open()
@@ -313,8 +320,9 @@ class BeeSIMClient:
     async def reset(self) -> bool:
         """软复位 eUICC（A0 3F），让手机重新识别配置。⚠ 会短暂中断网络。
 
-        尽力而为：返回 True 表示卡片**有应答**（任意状态字；官方 Web 亦不检查 SW）；
-        无应答（超时/断连）返回 False，不抛异常。调用方据此提示用户重连。
+        尽力而为：返回 True 表示卡片**有至少两字节应答**（任意状态字；官方 Web 亦不检查
+        SW）；无应答或截断响应（超时/断连）返回 False。会话已关闭时仍由
+        ``_ensure_open`` 抛 ``RuntimeError``。调用方据此提示用户重连。
         """
         self._ensure_open()
         return await self._euicc.reset()
@@ -388,6 +396,7 @@ class BeeSIMClient:
         self._ensure_open()
         firmware = parse_firmware_text(Path(path).expanduser().read_text(encoding="utf-8"))
         progress = await self._euicc.check_upgrading()
+        validate_firmware_progress(progress)
         rows = firmware["rows"]
         start = 1
         if resume:
@@ -415,7 +424,8 @@ class BeeSIMClient:
         """
         self._ensure_open()
         smdp, matching_id, embedded_cc = parse_activation_code(activation_code)
+        effective_cc = (confirm_code or None) if confirm_code is not None else (embedded_cc or None)
         return dict(await download_profile(
-            self._sim, self._euicc, smdp, matching_id, confirm_code or embedded_cc or None,
+            self._sim, self._euicc, smdp, matching_id, effective_cc,
             log=log or _QUIET, gateway=gateway or self._gateway,
         ))

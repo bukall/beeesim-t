@@ -159,8 +159,11 @@ def _parse_euicc_info(raw, root):
             result[fields[tag]] = "v" + ".".join(str(x) for x in value)
         elif tag == "84":
             resources = parse_tlv(value) if isinstance(value, bytes) else value
-            result[fields[tag]] = {name: int.from_bytes(find_tag(resources, t) or b"\x00", "big")
-                                   for t, name in (("81", "installedApplication"), ("82", "freeNonVolatileMemory"), ("83", "freeVolatileMemory"))}
+            parsed_resources = {}
+            for t, name in (("81", "installedApplication"), ("82", "freeNonVolatileMemory"), ("83", "freeVolatileMemory")):
+                v = find_tag(resources, t)
+                parsed_resources[name] = int.from_bytes(v, "big") if v is not None else None
+            result[fields[tag]] = parsed_resources
         elif tag == "0C":
             result[fields[tag]] = value.decode("utf-8", "replace") if isinstance(value, bytes) else _tlv_to_debug(value)
         else:
@@ -270,7 +273,7 @@ def describe_euicc_info(info: dict, language: str = "zh", title: Optional[str] =
             parts = []
             for sub, v in value.items():
                 label = _CARD_RESOURCE_LABELS.get(sub, (sub, sub))[0 if zh else 1]
-                text = _format_info_value(v, 80)
+                text = ("未知" if zh else "unknown") if v is None else _format_info_value(v, 80)
                 # 官方 Web 把空闲内存按 bytes/1024 显示为 KB；解读中同时给出。
                 if sub in ("freeNonVolatileMemory", "freeVolatileMemory") and isinstance(v, int):
                     text = (f"{text} 字节 = {format_capacity_kb(v)}" if zh
@@ -344,9 +347,11 @@ def capacity_data(info: dict, profiles: Optional[List[dict]] = None) -> dict:
     resource = info.get("extCardResource")
     if not isinstance(resource, dict):
         raise ValueError("extCardResource missing from EUICCInfo2")
-    free = int(resource.get("freeNonVolatileMemory", 0))
-    volatile = int(resource.get("freeVolatileMemory", 0))
-    apps = int(resource.get("installedApplication", 0))
+    free = resource.get("freeNonVolatileMemory")
+    if not isinstance(free, int):
+        raise ValueError("freeNonVolatileMemory missing from EUICCInfo2")
+    volatile = resource.get("freeVolatileMemory")
+    apps = resource.get("installedApplication")
     items: list[dict[str, Any]] = []
     installed = 0
     sized = 0
@@ -366,7 +371,7 @@ def capacity_data(info: dict, profiles: Optional[List[dict]] = None) -> dict:
         "freeBytes": free,
         "freeKB": format_capacity_kb(free),
         "freeVolatileBytes": volatile,
-        "freeVolatileKB": format_capacity_kb(volatile),
+        "freeVolatileKB": format_capacity_kb(volatile) if isinstance(volatile, int) else None,
         "installedApplication": apps,
         "source": "EUICCInfo2.extCardResource (ETSI TS 102 226 FF21)",
         "profiles": items,
@@ -396,12 +401,16 @@ def describe_capacity(data: dict, language: str = "zh") -> str:
     lines = [f"【{'容量' if zh else 'Capacity'}】"]
     if zh:
         lines.append(f"  剩余可用容量: {data['freeKB']} ({data['freeBytes']} 字节)")
-        lines.append(f"  空闲易失内存: {data['freeVolatileKB']} ({data['freeVolatileBytes']} 字节)")
-        lines.append(f"  已安装应用数: {data['installedApplication']}")
+        lines.append((f"  空闲易失内存: {data['freeVolatileKB']} ({data['freeVolatileBytes']} 字节)"
+                      if data['freeVolatileBytes'] is not None else "  空闲易失内存: 未知"))
+        lines.append((f"  已安装应用数: {data['installedApplication']}"
+                      if data['installedApplication'] is not None else "  已安装应用数: 未知"))
     else:
         lines.append(f"  Remaining: {data['freeKB']} ({data['freeBytes']} bytes)")
-        lines.append(f"  Free volatile memory: {data['freeVolatileKB']} ({data['freeVolatileBytes']} bytes)")
-        lines.append(f"  Installed applications: {data['installedApplication']}")
+        lines.append((f"  Free volatile memory: {data['freeVolatileKB']} ({data['freeVolatileBytes']} bytes)"
+                      if data['freeVolatileBytes'] is not None else "  Free volatile memory: unknown"))
+        lines.append((f"  Installed applications: {data['installedApplication']}"
+                      if data['installedApplication'] is not None else "  Installed applications: unknown"))
     if data["profiles"]:
         lines.append("  " + ("各配置近似大小（来自 profileSize）:" if zh
                             else "Approximate size per profile (from profileSize):"))
@@ -494,8 +503,8 @@ def parse_activation_code(code: str) -> Tuple[str, str, str]:
         raise ValueError("bad activation code; expected LPA:1$smdp$matchingId[$$confirmationCode]")
     # 官方非锚定 match 会把误粘贴的 http(s):// URL 截成 "https"；这里显式拦截，
     # 避免把错误推迟到 DNS/HTTP 层（真实 QR 以 LPA: 开头，SM-DP+ 地址不含 scheme）。
-    if code[match.end(1):match.end(1) + 3] == "://":
-        raise ValueError("SM-DP+ 地址不应包含 http(s):// 前缀")
+    if code[match.end(1):match.end(1) + 1] == ":":
+        raise ValueError("SM-DP+ address must not include an http(s):// scheme or port")
     return match.group(1), match.group(2) or "", match.group(3) or ""
 
 
@@ -511,6 +520,20 @@ def parse_firmware_text(text):
         raise ValueError("Firmware CRC missing")
     version = rows[-2][marker:]
     return {"rows": rows, "version": version, "crc": version[14:18]}
+
+
+def validate_firmware_progress(progress: dict) -> None:
+    """Reject corrupt/inconsistent card progress before a high-risk write/resume.
+
+    A currentRow greater than totalRows (or a negative/non-integer value) is not
+    "already complete"; it is an invalid state and must not be silently treated
+    as a finished firmware upgrade.
+    """
+    current = progress.get("currentRow")
+    total = progress.get("totalRows")
+    if (not isinstance(current, int) or not isinstance(total, int)
+            or current < 0 or total < 0 or current > total):
+        raise ValueError("Invalid firmware progress: currentRow/totalRows out of range")
 
 
 def _response_error(resp: bytes, root_tag: str) -> Optional[str]:

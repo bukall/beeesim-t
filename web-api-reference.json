@@ -153,7 +153,8 @@
     "Chained GET RESPONSE retries an empty 90 00 up to 3 times (a Python-side defensive retry; v2.3.6 readApdu returns immediately on 0x90).",
     "Enable/disable reset the eUICC by default (matches v2.3.6); the API reset=False option lets callers skip it.",
     "ES9+ success is restricted to None/Executed-Success/Executed-WithWarning; the official handleReasonCode only rejects on envelope status!=200 (reasonCode selects the message), so rejecting an unknown functionExecutionStatus is a deliberate tightening.",
-    "reset() is best-effort: returns True on any status-word response (the Web does not inspect the SW, utils:2646-2667) and False only when no response is received (timeout/disconnect); it does not auto-reconnect (the official Web registers a 60s reconnect task).",
+    "reset() is best-effort: returns True on any response of at least two bytes (the Web does not inspect the SW, utils:2646-2667) and False on an empty/truncated/no response (timeout/disconnect); it does not auto-reconnect (the official Web registers a 60s reconnect task).",
+    "Default ES9+ transport is DirectRSP (own-network SM-DP+ connection), intentionally different from the official Web's default proxy. In the TUI, confirming a proxy download uses the proxy; cancelling it falls back to DirectRSP.",
     "A 200 response with missing/empty data/header is treated as success (matches the official envelope-only check). Download notification deletion is gated on the card's installation result (BPP response), not the HTTP body, so an empty proxy response does not by itself delete the notification."
   ]
 }

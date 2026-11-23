@@ -27,7 +27,8 @@ SGP.22 eSIM 下载流程（卡侧 ES10b 与服务器侧 ES9+ 交错执行）。
   ⚠ 这里**刻意不同于** ``BeeSim.send_notification`` 的「默认保留」：后者面向
   用户可能想留痕的 INSTALL/ENABLE/DISABLE/DELETE 通知，删除不可逆，交由调用方
   显式决定；下载流程的通知没有留痕价值，故默认删除。两处默认值不同不是疏忽。
-* 默认走官方 HTTPS 代理；DirectRSP 为可选直连模式。
+* 默认使用 DirectRSP（本机网络直连 SM-DP+）；官方 HTTPS 代理为可选模式。
+  这与官方网页默认走自身代理的行为**刻意不一致**，见 web-api-reference.json。
 * 本模块只在函数内部 import beesim_web，避免离线测试被迫加载 HTTP 栈。
 """
 
@@ -71,8 +72,8 @@ async def download_profile(sim: "BeeSim", euicc: "Euicc", smdp: str, matching_id
     HTTP runs off the event loop. A failed notification is retained on the card
     for explicit retry; never download the profile again just to retry delivery.
     """
-    from beesim_web import WebAPI
-    gateway = gateway or WebAPI()
+    from beesim_web import DirectRSP
+    gateway = gateway or DirectRSP()
     b64e = lambda value: base64.b64encode(value).decode()
     b64d = lambda value: base64.b64decode(value, validate=True)
     async with euicc.transaction():

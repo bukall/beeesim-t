@@ -4,10 +4,10 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import ANY, AsyncMock, patch
 
-from bleak.exc import BleakError
-
 from beesim_euicc import BeeSim, Euicc
-from beesim_protocol import SERVICE_UUID, _parse_profile, capacity_data, describe_capacity, describe_euicc_info, format_capacity_kb, parse_activation_code, parse_firmware_text
+from beesim_protocol import (SERVICE_UUID, _parse_euicc_info, _parse_profile, capacity_data,
+                             describe_capacity, describe_euicc_info, format_capacity_kb,
+                             parse_activation_code, parse_firmware_text, validate_firmware_progress)
 from beesim_tlv import find_tag, parse_tlv, tlv
 from beesim_transport import BeeSimTransport, connect, read_rssi
 
@@ -66,6 +66,8 @@ class CodecTests(unittest.TestCase):
             parse_activation_code("1$https://bad/path$abc")
         with self.assertRaisesRegex(ValueError, "scheme|前缀|http"):
             parse_activation_code("LPA:1$https://rsp.example.com$MID")
+        with self.assertRaisesRegex(ValueError, "scheme|前缀|http"):
+            parse_activation_code("1$rsp.example.com:8443$MID")   # :port 也不得静默截断
         # 尾部多余空格文本按官方前缀匹配被忽略（记录该 parity 行为）。
         self.assertEqual(parse_activation_code("1$rsp.example.com$match extra"), ("rsp.example.com", "match", ""))
         # 非法头部（版本号不是 1 / 完全不是 LPA）仍拒绝。
@@ -73,6 +75,14 @@ class CodecTests(unittest.TestCase):
             parse_activation_code("2$rsp.example.com$match")
         with self.assertRaises(ValueError):
             parse_activation_code("not-an-lpa-code")
+
+    def test_firmware_progress_validation(self):
+        validate_firmware_progress({"currentRow": 0, "totalRows": 2})
+        validate_firmware_progress({"currentRow": 2, "totalRows": 2})   # 合法完成
+        for bad in ({"currentRow": 3, "totalRows": 2}, {"currentRow": -1, "totalRows": 2},
+                    {"currentRow": 1.5, "totalRows": 2}, {"currentRow": 0}):
+            with self.subTest(progress=bad), self.assertRaises(ValueError):
+                validate_firmware_progress(bad)
 
     def test_firmware_parser(self):
         data = parse_firmware_text("F000FEF00001020304ABCD\nF200\n")
@@ -182,6 +192,8 @@ class InitializationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(e2.inited)
         e3 = euicc(["6A81"])                 # 任意 SW 应答（如 6A81）也算 True（官方不检查 SW）
         self.assertTrue(await e3.reset())
+        self.assertFalse(await euicc([""]).reset())    # 空响应不算“有应答”
+        self.assertFalse(await euicc(["90"]).reset())  # 单字节截断响应也不算
 
 
 class InfoExplanationTests(unittest.TestCase):
@@ -200,6 +212,15 @@ class InfoExplanationTests(unittest.TestCase):
         self.assertIn("2.2.2", text)
         self.assertIn("空闲非易失存储(字节)=12345", text)
         self.assertIn("raw: 卡片返回的原始 BER-TLV", text)
+
+    def test_ext_card_resource_missing_fields_are_unknown(self):
+        # 只提供 freeNonVolatileMemory；其它字段应保留 None，而不是静默变 0。
+        raw = tlv([0xBF, 0x22], tlv(0x84, tlv(0x82, b"\x10\x00")))
+        info = _parse_euicc_info(raw, "BF22")
+        self.assertEqual(info["extCardResource"]["freeNonVolatileMemory"], 4096)
+        self.assertIsNone(info["extCardResource"]["freeVolatileMemory"])
+        self.assertIsNone(info["extCardResource"]["installedApplication"])
+        self.assertIn("未知", describe_euicc_info(info, "zh"))
 
     def test_english_explanation_and_unmapped_field(self):
         text = describe_euicc_info({"svn": "2.2.2", "unknownTag": "0102"}, "en", "EUICCInfo2")
@@ -390,6 +411,15 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "selector"):
             await sim.get_profiles("   ")
 
+    async def test_load_bound_profile_package_empty_response_raises(self):
+        e = Euicc(SimpleNamespace())
+        e.init = AsyncMock()
+        e.store_bytes = AsyncMock(return_value=b"")
+        sim = BeeSim(e)
+        with patch("beesim_euicc._bpp_to_blocks", return_value=[b"block"]):
+            with self.assertRaisesRegex(RuntimeError, "empty response"):
+                await sim.load_bound_profile_package(b"pkg")
+
     async def test_notification_list_parses_items(self):
         # BF28{A0{BF2F{...}}} 正常路径（A0 直接包含 BF2F）。
         metadata = tlv([0xBF, 0x2F], tlv(0x80, b"\x01"), tlv(0x0C, b"rsp.example.com"))
@@ -511,6 +541,18 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             await connect("test")
         client.disconnect.assert_awaited_once()
 
+    async def test_connect_rejects_missing_ae30_service(self):
+        chars = [SimpleNamespace(uuid="write", properties=["write"]),
+                 SimpleNamespace(uuid="notify", properties=["notify"])]
+        client = SimpleNamespace(connect=AsyncMock(), disconnect=AsyncMock(),
+                                 services=[SimpleNamespace(uuid="0000180f-0000-1000-8000-00805f9b34fb",
+                                                           characteristics=chars)])
+        device = SimpleNamespace(address="test", name="BeeSIM-test")
+        with patch("beesim_transport.BleakScanner.find_device_by_address", new=AsyncMock(return_value=device)), \
+                patch("beesim_transport.BleakClient", return_value=client):
+            with self.assertRaisesRegex(RuntimeError, "AE30 service not found"):
+                await connect("test")
+
     async def test_address_not_found_raises_fast(self):
         # --address 未广播 -> 解析为 None -> 快速失败，不做裸地址长等待。
         with patch("beesim_transport.BleakScanner.find_device_by_address", new=AsyncMock(return_value=None)):
@@ -530,7 +572,8 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 patch("beesim_transport.asyncio.sleep", new=AsyncMock()):
             _, _, e = await connect("test")
         self.assertEqual(client.connect.await_count, 2)   # 第一次瞬时失败后重试成功
-        scan.assert_awaited_once()                        # 重试不重复扫描（设备解析在重试外）
+        self.assertEqual(scan.await_count, 2)             # 初始解析 + 重试前短刷新（不是每次重扫 15s）
+        self.assertEqual([call.kwargs.get("timeout") for call in scan.await_args_list], [10.0, 5.0])
 
     async def test_address_resolve_called_once(self):
         chars = [SimpleNamespace(uuid="write-nr", properties=["write-without-response"]),
@@ -546,6 +589,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_scan_error_not_retried(self):
         # 扫描/解析错误（如无适配器抛 BleakError）不再重试，快速失败。
+        from bleak.exc import BleakError   # 仅该用例需要 bleak，纯 TLV 测试不硬依赖
         scan = AsyncMock(side_effect=BleakError("no adapter"))
         with patch("beesim_transport.BleakScanner.find_device_by_address", new=scan):
             with self.assertRaises(BleakError):
@@ -579,3 +623,4 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(euicc.inited)                     # 也不得清除新会话的 inited
         clients[1].disconnected_callback(clients[1])      # 当前 client 的回调
         self.assertTrue(euicc.t.closed)                   # 正常关闭
+        self.assertFalse(euicc.inited)                    # 当前回调同时清 inited

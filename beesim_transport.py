@@ -162,7 +162,7 @@ async def connect(address: Optional[str] = None, debug: bool = False, *,
         addr = address
         find = getattr(BleakScanner, "find_device_by_address", None)
         if find is not None:
-            device = await find(address, timeout=5.0)
+            device = await find(address, timeout=min(timeout, 10.0))
             if device is None:
                 raise RuntimeError(f"No BeeSIM device found at {address}")
 
@@ -187,8 +187,11 @@ async def connect(address: Optional[str] = None, debug: bool = False, *,
             await client.connect()
             services = list(client.services)
             preferred = [s for s in services if s.uuid.lower() == SERVICE_UUID.lower()]
-            candidates = preferred or [s for s in services if getattr(s, "is_primary", True)][:1]
-            chars = [c for service in candidates for c in service.characteristics]
+            if not preferred:
+                # 官方 Web 明确请求 AE30 服务；缺失时不得回退到无关主服务，否则
+                # EID/配置/删除/刷固件等 APDU 可能被发往错误 GATT 服务。
+                raise RuntimeError("BeeSIM AE30 service not found")
+            chars = [c for service in preferred for c in service.characteristics]
             writes = [c for c in chars if "write-without-response" in c.properties or "write" in c.properties]
             writes.sort(key=lambda c: "write-without-response" not in c.properties)
             notifies = [c for c in chars if "notify" in c.properties or "indicate" in c.properties]
@@ -224,6 +227,16 @@ async def connect(address: Optional[str] = None, debug: bool = False, *,
             else:
                 print(msg, file=sys.stderr)
             await asyncio.sleep(2.0)
+            # 重试前用短超时重新解析设备对象：第一次连接期间卡片若重启，旧对象可能失效。
+            # 这里只刷新一次（不是每个重试循环重扫 15s），解析失败则保留旧对象继续尝试。
+            find = getattr(BleakScanner, "find_device_by_address", None)
+            if find is not None:
+                try:
+                    refreshed = await find(addr, timeout=min(timeout, 5.0))
+                except Exception:
+                    refreshed = None
+                if refreshed is not None:
+                    device = refreshed
     raise RuntimeError("BLE connection failed after retries")   # 不可达；末次尝试已重新抛出
 
 async def read_rssi(client) -> Optional[int]:

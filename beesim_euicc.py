@@ -146,7 +146,12 @@ class Euicc:
         "not acknowledged". The session is always marked uninitialized afterwards.
         """
         try:
-            await self.send_command(bytes([0xA0, 0x3F, 0x00, 0x00, 0x00]), reinit_on_6881=False)
+            r = await self.send_command(bytes([0xA0, 0x3F, 0x00, 0x00, 0x00]), reinit_on_6881=False)
+            if len(r) < 2:
+                self._log("reset returned a truncated response:", b2h(r))
+                return False
+            if r[-2:] != b"\x90\x00":
+                self._log("reset returned SW", b2h(r), "(acknowledged; official does not inspect SW)")
             return True
         except Exception as exc:
             self._log("reset failed (no response; reconnect if needed):", exc)
@@ -462,6 +467,8 @@ class BeeSim:
                 self.e.delay_over_counter = 20
                 for block in _bpp_to_blocks(package):
                     response = await self.e.store_bytes(block)
+                    if not response:
+                        raise RuntimeError("LoadBoundProfilePackage returned an empty response")
                     if response[0] == 0x61:
                         raw = await self.e.get_response(response[1])
                         parse_installation_result(raw)

@@ -35,7 +35,7 @@ from beesim_i18n import translate, translate_error
 from beesim_tlv import b2h, h2b
 from beesim_protocol import (
     capacity_data, describe_capacity, describe_euicc_info,
-    parse_activation_code, parse_firmware_text,
+    parse_activation_code, parse_firmware_text, validate_firmware_progress,
 )
 from beesim_transport import connect, read_rssi
 from beesim_download import download_profile
@@ -200,7 +200,8 @@ def build_app():
             self.settings = dict(timeout=30.0, store_max_lc=120, channel=1, delay_over_counter=6)
             if settings:
                 self.settings.update(settings)
-            self.gateway = gateway
+            from beesim_web import DirectRSP
+            self.gateway = gateway if gateway is not None else DirectRSP()   # 默认使用本机网络直连
             self.client = self.sim = self.euicc = None
             self.busy = False
             self.rssi = None
@@ -447,17 +448,30 @@ def build_app():
                     self.log_line(self.tr("failed", action=self.tr("download"), error=str(exc)))
                     return
                 def confirmation(confirmation_code):
-                    async def perform():
-                        # 确认码必填与否由 PrepareDownload 判定；优先用户输入，
-                        # 其次激活码 $$ 段嵌入的确认码（已预填到表单）。
+                    from beesim_web import DirectRSP
+                    direct = isinstance(self.gateway, DirectRSP)
+
+                    async def perform(gateway):
+                        # 确认码必填与否由 PrepareDownload 判定；表单值已是最终值
+                        # （内嵌码已预填，用户清空即为 None，不再恢复旧值）。
                         await download_profile(self.sim, self.euicc, smdp, matching,
-                                                   confirmation_code or embedded_cc or None,
-                                                   log=self.progress, gateway=self.gateway)
+                                               confirmation_code or None,
+                                               log=self.progress, gateway=gateway)
                         self.log_line(self.tr("download_ok"))
                         await self._refresh_soft()
-                    from beesim_web import DirectRSP
-                    self.push_screen(ConfirmScreen(self.tr("direct_question" if isinstance(self.gateway, DirectRSP) else "proxy_question"), self.language),
-                                     lambda yes: self._start("download", perform) if yes else None)
+
+                    def choose(yes):
+                        if direct:
+                            if not yes:             # 直连确认点取消 -> 不下载
+                                return
+                            gateway = self.gateway
+                        else:
+                            # 代理确认：确认走代理；取消/拒绝回退直连（本机网络）。
+                            gateway = self.gateway if yes else DirectRSP()
+                        self._start("download", lambda: perform(gateway))
+
+                    self.push_screen(ConfirmScreen(self.tr("direct_question" if direct else "proxy_question"), self.language),
+                                     choose)
                 self._form("confirmation_code", confirmation, value=embedded_cc, password=True)
             self._form("activation", activation)
 
@@ -560,6 +574,11 @@ def build_app():
                     return
                 async def check():
                     progress = await self.euicc.check_upgrading()
+                    try:
+                        validate_firmware_progress(progress)
+                    except ValueError:
+                        self.log_line(self.tr("firmware_progress_invalid"))
+                        return
                     if progress["crc"] == content["crc"] and (not progress["totalRows"] or progress["currentRow"] >= progress["totalRows"]):
                         self.log_line(self.tr("firmware_current"))
                         return

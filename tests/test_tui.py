@@ -270,7 +270,8 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(app.query_one("#btn-refresh", Button).disabled)
 
     async def test_download_requests_confirmation_code_and_route_confirmation(self):
-        app = build_app()(language="zh")
+        from beesim_web import WebAPI
+        app = build_app()(language="zh", gateway=WebAPI())   # 显式代理路径
         app.client = SimpleNamespace(disconnect=AsyncMock())
         app.sim = SimpleNamespace(get_profiles=AsyncMock(return_value=[]))
         app.euicc = SimpleNamespace(t=SimpleNamespace(closed=False))
@@ -290,6 +291,34 @@ class TUITests(unittest.IsolatedAsyncioTestCase):
                 await pilot.click("#confirm")
                 await pilot.pause()
                 self.assertEqual(download.call_args.args[4], "1234")
+
+    async def test_proxy_download_cancel_uses_direct_and_can_clear_embedded_code(self):
+        from beesim_web import DirectRSP, WebAPI
+        app = build_app()(language="zh", gateway=WebAPI())
+        app.client = SimpleNamespace(disconnect=AsyncMock())
+        app.sim = SimpleNamespace(get_profiles=AsyncMock(return_value=[]))
+        app.euicc = SimpleNamespace(t=SimpleNamespace(closed=False))
+        async with app.run_test(size=(110, 40)) as pilot:
+            with patch("beesim_tui.download_profile", new=AsyncMock()) as download:
+                app.action_download()
+                await pilot.pause()
+                app.screen.query_one(Input).value = "LPA:1$rsp.example.com$test$$1"  # 内嵌确认码 "1"
+                await pilot.click("#ok")
+                await pilot.pause()
+                app.screen.query_one(Input).value = ""   # 用户清空内嵌码
+                await pilot.click("#ok")
+                await pilot.pause()
+                self.assertIn("官方代理", str(app.screen.query_one("#dialog-q", Label).render()))
+                await pilot.click("#cancel")           # 代理确认取消 -> 本机网络直连
+                await pilot.pause()
+                await app.workers.wait_for_complete()
+                download.assert_awaited_once()
+                self.assertIsNone(download.call_args.args[4])                 # 清空后不再恢复内嵌 "1"
+                self.assertIsInstance(download.call_args.kwargs["gateway"], DirectRSP)
+
+    async def test_default_download_gateway_is_direct(self):
+        from beesim_web import DirectRSP
+        self.assertIsInstance(build_app()().gateway, DirectRSP)
 
     async def test_info_screen_shows_json_and_chinese_explanation(self):
         app = build_app()(language="zh")
